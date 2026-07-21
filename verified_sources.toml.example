@@ -1,0 +1,14 @@
+# Operator-maintained source of truth. The real file is gitignored.
+# Verified/PGP-signed onion addresses of legitimate sites.
+verified_onions = [
+    # "exampleverifiedonionaddr56chars....onion",
+]
+
+# Optional: expected PGP fingerprint per onion (canonicalised on load).
+[pgp]
+# "exampleverifiedonionaddr....onion" = "AAAA BBBB CCCC DDDD EEEE  FFFF 0000 1111 2222 3333"
+
+# Trusted directory sites to seed verified lists from.
+directories = [
+    # "https://dark.fail/",
+]
