@@ -1,0 +1,3 @@
+# One URL per line. Clearnet directories and known .onion directories.
+# Your real seeds.txt is gitignored. Examples:
+https://ahmia.fi/
