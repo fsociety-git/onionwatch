@@ -60,9 +60,18 @@ class RunStats:
     stop_reason: str
 
 async def crawl(config, db, client, seeds, run_id, now) -> RunStats:
+    # Retry URLs that were skipped by a per-host cap in a previous run, now
+    # that this run starts with a fresh per-host budget. Must happen before
+    # seeding/processing so the reset rows are eligible via next_pending().
+    db.reset_state("deferred", "pending")
+
     db.start_run(run_id, now, len(seeds))
     for s in seeds:
-        db.enqueue(normalize_url(s), 0)
+        seed_url = normalize_url(s)
+        # Upsert now (not only after a successful fetch) so a seed that gets
+        # skipped by the per-host cap on its first attempt still has a row.
+        db.upsert_url(seed_url, onion_host(seed_url) or "", "seed", 0, now)
+        db.enqueue(seed_url, 0)
     host_pages: dict[str, int] = defaultdict(int)
     processed = 0
     alive = 0
@@ -72,29 +81,45 @@ async def crawl(config, db, client, seeds, run_id, now) -> RunStats:
     async def handle(row):
         nonlocal alive
         url, depth = row["url"], row["depth"]
-        host = onion_host(url)
-        if host and host_pages[host] >= config.per_host_page_cap:
+        host = None
+        try:
+            host = onion_host(url)
+            if host:
+                # Reserve the per-host slot atomically: check-and-increment
+                # with no `await` between them, so concurrently-gathered
+                # same-host URLs cannot all pass the check before any of
+                # them registers its increment.
+                if host_pages[host] >= config.per_host_page_cap:
+                    # Retryable in a future run once the per-host budget
+                    # resets — never mark a cap-skipped URL "done".
+                    db.mark_frontier(url, "deferred")
+                    return
+                host_pages[host] += 1
+
+            res = await client.fetch(url)
+            if config.per_host_delay:
+                await asyncio.sleep(config.per_host_delay)
+
+            if res.ok and res.status and res.status < 400:
+                alive += 1
+                db.upsert_url(url, host or "", "crawled", depth, now)
+                db.update_url(url, alive=1, http_status=res.status, last_checked=now)
+                if config.max_depth == 0 or depth < config.max_depth:
+                    for link in extract_onion_links(res.html, url):
+                        if db.get_url(link) is None:
+                            db.upsert_url(link, onion_host(link) or "", "crawled",
+                                          depth + 1, now)
+                            db.enqueue(link, depth + 1)
+            else:
+                db.upsert_url(url, host or "", "crawled", depth, now)
+                db.update_url(url, alive=0, http_status=res.status, last_checked=now)
             db.mark_frontier(url, "done")
-            return
-        res = await client.fetch(url)
-        if config.per_host_delay:
-            await asyncio.sleep(config.per_host_delay)
-        if host:
-            host_pages[host] += 1
-        if res.ok and res.status and res.status < 400:
-            alive += 1
+        except Exception:
+            # Never let one bad page (e.g. a malformed page crashing link
+            # extraction) abort the whole crawl. Isolate it, record it, move on.
             db.upsert_url(url, host or "", "crawled", depth, now)
-            db.update_url(url, alive=1, http_status=res.status, last_checked=now)
-            if config.max_depth == 0 or depth < config.max_depth:
-                for link in extract_onion_links(res.html, url):
-                    if db.get_url(link) is None:
-                        db.upsert_url(link, onion_host(link) or "", "crawled",
-                                      depth + 1, now)
-                        db.enqueue(link, depth + 1)
-        else:
-            db.upsert_url(url, host or "", "crawled", depth, now)
-            db.update_url(url, alive=0, http_status=res.status, last_checked=now)
-        db.mark_frontier(url, "done")
+            db.update_url(url, alive=0, last_checked=now)
+            db.mark_frontier(url, "failed")
 
     while True:
         if processed >= config.max_urls:

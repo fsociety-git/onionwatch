@@ -42,6 +42,19 @@ def test_frontier_roundtrip(tmp_path):
     db.mark_frontier("http://a.onion/", "done")
     assert db.count_frontier("done") == 1
 
+def test_reset_state(tmp_path):
+    db = make_db(tmp_path)
+    db.enqueue("http://a.onion/", 0)
+    db.enqueue("http://b.onion/", 0)
+    db.enqueue("http://c.onion/", 0)
+    db.mark_frontier("http://a.onion/", "deferred")
+    db.mark_frontier("http://b.onion/", "deferred")
+    # c stays pending — must not be touched
+    count = db.reset_state("deferred", "pending")
+    assert count == 2
+    assert db.count_frontier("pending") == 3
+    assert db.count_frontier("deferred") == 0
+
 def test_canonical_trusted_filter(tmp_path):
     db = make_db(tmp_path)
     for u, canon, trust in [

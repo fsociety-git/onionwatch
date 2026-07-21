@@ -101,6 +101,12 @@ class Database:
         return self.conn.execute(
             "SELECT COUNT(*) FROM frontier WHERE state=?", (state,)).fetchone()[0]
 
+    def reset_state(self, from_state, to_state) -> int:
+        cur = self.conn.execute(
+            "UPDATE frontier SET state=? WHERE state=?", (to_state, from_state))
+        self.conn.commit()
+        return cur.rowcount
+
     def start_run(self, run_id, started_at, seeds_count) -> None:
         self.conn.execute(
             "INSERT OR REPLACE INTO crawl_runs (run_id, started_at, seeds_count) "

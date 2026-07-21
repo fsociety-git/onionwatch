@@ -30,10 +30,13 @@ def test_visible_text_strips_tags():
     assert "Bitcoin" in txt and "market" in txt
     assert "<" not in txt
 
+import asyncio
+from collections import defaultdict
+
 import pytest
 from dwcollector.config import Config
 from dwcollector.db import Database
-from dwcollector.discover import crawl, FetchResult  # FetchResult re-exported for typing
+from dwcollector.discover import crawl, onion_host, FetchResult  # FetchResult re-exported for typing
 
 class FakeClient:
     """Returns canned HTML per URL; unknown URLs 404."""
@@ -72,3 +75,127 @@ async def test_crawl_respects_max_urls(tmp_path):
     stats = await crawl(cfg, db, FakeClient(pages), [A], "run2", "2026-07-21T00:00:00")
     assert stats.stop_reason == "max_urls"
     assert stats.discovered <= 3 + 9   # bounded; does not enqueue unbounded
+
+
+# --- Fix 2: per-URL exception isolation -------------------------------------
+
+@pytest.mark.asyncio
+async def test_crawl_isolates_per_url_exceptions(tmp_path):
+    """One URL raising inside handle() must not abort the whole crawl."""
+    A = "http://aaaaaaaaaaaaaaaa.onion/"
+    B = "http://bbbbbbbbbbbbbbbb.onion/"
+
+    class BoomClient:
+        async def fetch(self, url):
+            from dwcollector.tor_client import FetchResult as FR
+            if url == A:
+                raise RuntimeError("boom: malformed page")
+            return FR(url, 200, "", 1, True)
+
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    cfg = Config(max_urls=10, concurrency=2, per_host_delay=0)
+    stats = await crawl(cfg, db, BoomClient(), [A, B], "run_boom", "2026-07-21T00:00:00")
+
+    # crawl must reach a normal stop reason (i.e. finish_run ran, run wasn't stranded)
+    assert stats.stop_reason in ("frontier_empty", "max_urls", "time_budget")
+
+    row_a = db.conn.execute(
+        "SELECT state FROM frontier WHERE url=?", (A,)).fetchone()
+    row_b = db.conn.execute(
+        "SELECT state FROM frontier WHERE url=?", (B,)).fetchone()
+    assert row_a["state"] == "failed"
+    assert row_b["state"] == "done"   # other URL in the batch still processed
+
+
+# --- Fix 3: per-host cap concurrency race -------------------------------------
+
+@pytest.mark.asyncio
+async def test_crawl_per_host_cap_is_atomic_under_concurrency(tmp_path):
+    """The cap check+increment must be atomic (no await between them), so a
+    batch of same-host URLs cannot all sneak past the cap before any of them
+    increment the counter."""
+    HOST = "cccccccccccccccc.onion"
+    A = f"http://{HOST}/"
+    children = [f"http://{HOST}/p{i}" for i in range(6)]
+    pages = {A: "".join(f'<a href="{c}">c</a>' for c in children)}
+    for c in children:
+        pages[c] = ""
+
+    class RacyClient:
+        """Like FakeClient, but yields control (await asyncio.sleep(0)) inside
+        fetch() so concurrently-gathered handle() coroutines truly interleave —
+        this is what exposes a non-atomic check-then-increment race."""
+        def __init__(self, pages):
+            self.pages = pages
+            self.fetch_count = defaultdict(int)
+
+        async def fetch(self, url):
+            from dwcollector.tor_client import FetchResult as FR
+            host = onion_host(url)
+            await asyncio.sleep(0)
+            self.fetch_count[host] += 1
+            html = self.pages.get(url, "")
+            return FR(url, 200, html, 1, True)
+
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    cfg = Config(max_urls=100, concurrency=6, per_host_delay=0, per_host_page_cap=2)
+    client = RacyClient(pages)
+    await crawl(cfg, db, client, [A], "run_race", "2026-07-21T00:00:00")
+
+    assert client.fetch_count[HOST] <= cfg.per_host_page_cap
+
+
+# --- Fix 4: cap-skipped URLs must be retryable across runs -------------------
+
+@pytest.mark.asyncio
+async def test_capped_url_marked_deferred_not_done(tmp_path):
+    HOST = "dddddddddddddddd.onion"
+    A = f"http://{HOST}/"
+    B = f"http://{HOST}/b"
+    pages = {A: f'<a href="{B}">b</a>', B: ""}
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    cfg = Config(max_urls=10, concurrency=4, per_host_delay=0, per_host_page_cap=1)
+    await crawl(cfg, db, FakeClient(pages), [A], "run_cap", "2026-07-21T00:00:00")
+
+    row = db.conn.execute("SELECT state FROM frontier WHERE url=?", (B,)).fetchone()
+    assert row["state"] == "deferred"
+
+
+@pytest.mark.asyncio
+async def test_deferred_url_retried_on_next_crawl(tmp_path):
+    HOST = "eeeeeeeeeeeeeeee.onion"
+    A = f"http://{HOST}/"
+    B = f"http://{HOST}/b"
+    pages = {A: f'<a href="{B}">b</a>', B: ""}
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+
+    cfg_capped = Config(max_urls=10, concurrency=4, per_host_delay=0, per_host_page_cap=1)
+    await crawl(cfg_capped, db, FakeClient(pages), [A], "run_defer_a", "2026-07-21T00:00:00")
+    row = db.conn.execute("SELECT state FROM frontier WHERE url=?", (B,)).fetchone()
+    assert row["state"] == "deferred"
+
+    # fresh crawl, higher per-host budget: previously deferred URL gets a fresh
+    # per-host budget and is actually processed this time (no re-seeding needed)
+    cfg_open = Config(max_urls=10, concurrency=4, per_host_delay=0, per_host_page_cap=1000)
+    await crawl(cfg_open, db, FakeClient(pages), [], "run_defer_b", "2026-07-21T01:00:00")
+
+    row2 = db.conn.execute("SELECT state FROM frontier WHERE url=?", (B,)).fetchone()
+    assert row2["state"] == "done"
+    url_row = db.get_url(B)
+    assert url_row["alive"] == 1
+
+
+@pytest.mark.asyncio
+async def test_capped_seed_still_gets_url_row(tmp_path):
+    """Minor fix: a seed skipped by the cap on its own first attempt must still
+    have a row in `urls` (upserted at enqueue time, not only after a fetch)."""
+    HOST = "ffffffffffffffff.onion"
+    A = f"http://{HOST}/"
+    B = f"http://{HOST}/other"
+    pages = {A: "", B: ""}
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    cfg = Config(max_urls=10, concurrency=4, per_host_delay=0, per_host_page_cap=1)
+    await crawl(cfg, db, FakeClient(pages), [A, B], "run_seedcap", "2026-07-21T00:00:00")
+
+    assert db.get_url(A) is not None
+    assert db.get_url(B) is not None
