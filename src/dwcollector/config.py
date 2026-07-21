@@ -37,4 +37,10 @@ def load_verified_sources(path: str = "verified_sources.toml") -> dict:
     data.setdefault("verified_onions", [])
     data.setdefault("pgp", {})
     data.setdefault("directories", [])
+    # Normalize onion identifiers to lowercase (matches onion_host()'s always-
+    # lowercase output) so hand-edited mixed-case entries don't silently fail
+    # is_verified()/pgp_matches(). Fingerprint values are left untouched --
+    # they're canonicalized separately at compare time.
+    data["verified_onions"] = [str(h).lower() for h in data["verified_onions"]]
+    data["pgp"] = {str(h).lower(): fp for h, fp in data["pgp"].items()}
     return data

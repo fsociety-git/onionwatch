@@ -5,6 +5,14 @@ from .discover import onion_host
 # 40-hex-char PGP v4 fingerprint, usually shown as 10 groups of 4 hex chars
 _FP_GROUP = re.compile(r"\b(?:[0-9A-Fa-f]{4}[ ]{1,2}){9}[0-9A-Fa-f]{4}\b")
 
+# A candidate match is ambiguous (part of a LONGER grouped-hex run) if it is
+# immediately preceded or followed by another complete 4-hex group. Checked
+# via post-match validation rather than lookbehind, since Python `re`
+# lookbehind must be fixed-width and the separator is variable-width (1-2
+# spaces).
+_HEX_GROUP_BEFORE = re.compile(r"\b[0-9A-Fa-f]{4}[ ]{1,2}\Z")
+_HEX_GROUP_AFTER = re.compile(r"\A[ ]{1,2}[0-9A-Fa-f]{4}\b")
+
 def _canon_fp(raw: str) -> str:
     return re.sub(r"[^0-9A-Fa-f]", "", raw).upper()
 
@@ -13,8 +21,15 @@ def is_verified(url: str, verified: dict) -> bool:
     return host in set(verified.get("verified_onions", []))
 
 def pgp_fingerprint_in_page(text: str) -> str | None:
-    m = _FP_GROUP.search(text)
-    return _canon_fp(m.group(0)) if m else None
+    for m in _FP_GROUP.finditer(text):
+        before, after = text[: m.start()], text[m.end() :]
+        if _HEX_GROUP_BEFORE.search(before) or _HEX_GROUP_AFTER.search(after):
+            # Ambiguous: this 10-group window is embedded in a longer
+            # grouped-hex run. Fail closed rather than return a truncated
+            # fingerprint.
+            continue
+        return _canon_fp(m.group(0))
+    return None
 
 def pgp_matches(url: str, page_text: str, verified: dict) -> bool:
     host = onion_host(url)
