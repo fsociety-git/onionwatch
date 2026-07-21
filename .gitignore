@@ -1,0 +1,21 @@
+# Collected data — never commit
+dwcollector.db
+dwcollector.db-*
+*.db
+seeds.txt
+exports/
+*.csv
+*.jsonl
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
