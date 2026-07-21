@@ -67,6 +67,11 @@ seeds.txt + Ahmia + verified lists ─► frontier (DB-backed) ─► N workers 
   runs, without losing progress or re-fetching completed URLs.
 - Each fetched page: extract `.onion` links (parser + regex), dedupe against DB,
   enqueue unseen at `depth + 1`.
+- **Discovery is category-agnostic:** every `.onion` link is captured and
+  followed regardless of site type. Categorisation only *labels* sites after the
+  fact — it never filters what gets discovered. Marketplaces, forums, leak/paste
+  sites, crypto, hosting, wikis, and blogs are all collected. Category filtering
+  applies only at the export / leak-hunt stage, on demand.
 
 ### 2. Liveness probe
 For each discovered `.onion` root: `alive`, `http_status`, `title`,
