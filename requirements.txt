@@ -1,0 +1,5 @@
+httpx[socks]==0.27.2
+selectolax==0.3.21
+stem==1.8.2
+pytest==8.3.3
+pytest-asyncio==0.24.0
