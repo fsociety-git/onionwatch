@@ -1,8 +1,10 @@
-# Collected data — never commit
+# Collected data & sources — never commit
 dwcollector.db
 dwcollector.db-*
 *.db
+data/
 seeds.txt
+verified_sources.toml
 exports/
 *.csv
 *.jsonl

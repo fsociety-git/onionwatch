@@ -1,75 +1,126 @@
 # dwcollector — Design
 
 **Date:** 2026-07-21
-**Status:** Approved, pending implementation plan
+**Status:** Approved (revised), pending implementation plan
 
 ## Purpose
 
-A self-contained Tor crawler that discovers `.onion` URLs from directory sites,
-follows links to a bounded depth, checks whether each discovered site is alive,
-categorises it via an editable keyword ruleset, and stores everything queryable
-in SQLite. Scope is **discovery + liveness + categorisation only** — no full page
-content is archived (a bounded text snippet is kept solely to enable offline
-re-categorisation).
+A self-contained Tor crawler for **threat hunting**. It deep-crawls `.onion`
+directory sites to discover URLs, verifies liveness via a containerised Tor,
+categorises each site, and — critically — distinguishes **legit original sites
+from clone/phishing mirrors** so the operator works from a curated, trustworthy
+set. It can then **hunt for a client's data** across those legit sites to detect
+leaks.
 
-Intended use: threat-intelligence / security research URL collection.
+Intended, authorised use: a threat hunter checking whether a client's data has
+been leaked to the dark web. Not for accessing, downloading, or redistributing
+leaked datasets — only for detecting and reporting exposure.
 
 ## Stack
 
-- **Python 3.12** in a local virtualenv (system Python is 3.9; a venv keeps the
-  project on a modern runtime).
-- **`httpx[socks]`** — async HTTP routed through the existing Tor SOCKS proxy at
-  `127.0.0.1:9050`.
-- **`selectolax`** — fast HTML parsing for link + text extraction.
-- **`stem`** — optional Tor control-port checks (circuit health / NEWNYM). Not
-  required for core operation.
-- **stdlib `sqlite3`** — storage. No external DB.
-- **stdlib `tomllib`** — read `config.toml` / `categories.toml`.
+- **Python 3.12** in a local virtualenv (system Python is 3.9).
+- **`httpx[socks]`** — async HTTP over a Tor SOCKS proxy.
+- **`selectolax`** — fast HTML parsing (links + visible text).
+- **`stem`** — Tor control-port checks and circuit rotation (`NEWNYM`).
+- **simhash** (small local implementation or `simhash` lib) — content
+  fingerprinting for clone detection.
+- **stdlib `sqlite3`** — storage. **stdlib `tomllib`** — config.
+- **Docker + Docker Compose** — reproducible Tor proxy (and optional crawler
+  container).
 
-## Architecture — async worker pool
+## Deployment — Docker + Tor
 
-Chosen over Scrapy: lighter, no framework lock-in, and Tor throughput (not the
-framework) is the bottleneck. Chosen over a synchronous crawler: Tor latency is
-high and highly variable, so concurrency is essential for reasonable throughput.
+The crawler is proxy-agnostic (points at whatever SOCKS proxy `config.toml`
+names), but the recommended, reproducible setup is Docker Compose:
 
 ```
-seeds.txt + Ahmia API ─► frontier queue ─► N async workers ─► SQLite
-                              ▲                   │
-                              └── new .onion ─────┘   (BFS to max depth)
+docker-compose.yml
+├── service: tor          # Tor daemon, exposes SOCKS 9050 (+ control 9051)
+│                         # torrc mounted from ./tor/torrc
+├── service: dwcollector  # built from Dockerfile, runs the CLI
+│                         # depends_on tor; mounts ./data for the DB
+└── (optional) tor-2..N   # extra Tor instances for parallel circuits/throughput
 ```
 
-### Discovery loop (BFS)
-1. Seed the frontier from `seeds.txt` (clearnet + `.onion`) and, if enabled, the
-   Ahmia public listing.
-2. Each worker dequeues a URL, fetches it through Tor.
-3. Extract `.onion` links from the response (parser + regex over hrefs and raw
-   text).
-4. Dedupe candidates against the DB; enqueue unseen ones at `depth + 1`.
-5. Continue until the frontier is empty or `max_depth` is reached.
+- Liveness and crawling route through the `tor` container's SOCKS port.
+- Multiple Tor instances (round-robined by the client) give more concurrent
+  circuits for deep crawls and faster liveness sweeps.
+- The existing host Tor on `127.0.0.1:9050` remains usable by setting
+  `socks_proxy` accordingly — Docker is the default, not a hard requirement.
 
-### Liveness probe
-For each newly discovered `.onion` **root**, record: `alive` (bool), `http_status`,
-page `title`, and `response_ms`. During a full crawl this is a byproduct of the
-fetch; the standalone `probe` command re-checks known URLs without discovery.
+## Architecture — async worker pool, resumable
 
-### Categorisation (keyword rules)
-- `categories.toml` maps each category to a list of keyword/regex terms.
-- Seed categories: `marketplace`, `forum`, `hosting`, `crypto`, `search`,
-  `wiki/directory`, `blog`, and `unknown` (default when nothing matches).
-- At fetch time, score the page's title + visible text against each category's
-  terms. Highest score wins; ties broken by category order in the file.
-- `category_confidence` = normalized match score (matched term weight / total).
-- `matched_terms` stored for transparency and ruleset tuning.
-- A bounded **`snippet`** (~500 chars of visible text) is stored per URL so the
-  ruleset can be edited and re-applied offline via `dwcollector categorize`,
-  without re-crawling.
+```
+seeds.txt + Ahmia + verified lists ─► frontier (DB-backed) ─► N workers ─► SQLite
+                                            ▲                     │
+                                            └──── new .onion ─────┘
+      crawl (deep BFS) → fingerprint → categorise → probe → cluster → hunt
+```
+
+### 1. Deep discovery (resumable BFS with safety caps)
+- Seed from `seeds.txt`, the Ahmia listing, and verified mirror lists.
+- **Depth is unbounded** (`max_depth = 0`), but every run is bounded by:
+  `max_urls`, `time_budget_minutes`, and `per_host_page_cap`. Runs always
+  terminate.
+- The **frontier is persisted in SQLite** (`frontier` table with per-URL state),
+  so a crawl is **resumable** — stop and restart, or crawl deeper over successive
+  runs, without losing progress or re-fetching completed URLs.
+- Each fetched page: extract `.onion` links (parser + regex), dedupe against DB,
+  enqueue unseen at `depth + 1`.
+
+### 2. Liveness probe
+For each discovered `.onion` root: `alive`, `http_status`, `title`,
+`response_ms`, `last_checked`. `dwcollector probe` re-checks known URLs without
+discovery.
+
+### 3. Categorisation (keyword rules)
+- `categories.toml`: category → keyword/regex terms. Categories: `marketplace`,
+  `forum`, `hosting`, `crypto`, `search`, `wiki/directory`, `paste`, `leak-site`,
+  `blog`, `unknown`.
+- Score title + visible text; highest score wins. Store `category`,
+  `category_confidence`, `matched_terms`, and a bounded `snippet` (~500 chars)
+  for offline re-categorisation.
+
+### 4. Clone / original detection (verified anchor + clustering)
+The core trust step. Combines an external source of truth with content
+clustering:
+
+1. **Content fingerprint:** compute a `content_simhash` over each page's
+   normalized structure+text.
+2. **Cluster:** group sites whose fingerprints are within
+   `simhash_distance_threshold` (Hamming distance) into a `cluster_id` — these
+   are near-duplicates (mirrors/clones of one site).
+3. **Anchor to truth:** load verified addresses from `verified_sources.toml`
+   (PGP-signed / dark.fail-style directories, Ahmia). Optionally match a site's
+   published PGP key fingerprint.
+4. **Pick canonical** per cluster, in priority order:
+   verified-list match → valid matching PGP key → oldest `first_seen` → most
+   inbound links.
+5. **Label:** canonical gets `is_canonical = 1`; others get `clone_of =
+   <canonical url>`. Each URL gets a `trust` level:
+   `verified` / `probable` / `unknown` / `suspected_clone`.
+
+`dwcollector cluster` runs/reruns this step over stored fingerprints (offline).
+Leak hunting and default exports operate on **canonical + trusted** sites only,
+filtering clones out — which is exactly the "only legit sites" requirement.
+
+> Limitation, stated plainly: automated legit-vs-phishing is heuristic. The
+> verified anchor makes it defensible, but `suspected_clone` / `unknown` items
+> are surfaced for operator review rather than silently trusted.
+
+### 5. Leak hunt
+`dwcollector hunt --terms client.txt` scans **canonical legit sites** for client
+identifiers (domains, emails, keywords; regex supported):
+- Fetches page content of in-scope sites through Tor (content fetched
+  transiently for matching).
+- Records each hit in `leak_hits`: which site/url, matched term, and a short
+  surrounding **context snippet** — **not** the full leaked data.
+- Reports a summary (site, category, trust, matched terms, count).
 
 ### Politeness / resilience
-- Per-host rate limit (`per_host_delay`), capped global concurrency.
-- Request timeout, retry-with-exponential-backoff (Tor circuits fail often).
-- Configurable User-Agent.
-- No auth attempts, no form submission, no content download beyond the parsed
-  page needed for link extraction and the bounded snippet.
+Per-host rate limit, capped concurrency, request timeout, retry-with-backoff,
+configurable User-Agent, Tor circuit rotation on repeated failures. No auth, no
+form submission.
 
 ## Data model — SQLite `dwcollector.db`
 
@@ -78,92 +129,128 @@ fetch; the standalone `probe` command re-checks known URLs without discovery.
 | --- | --- | --- |
 | `url` | TEXT PK | normalized |
 | `host` | TEXT | `.onion` host |
-| `source` | TEXT | `seed` / `ahmia` / `crawled` |
+| `source` | TEXT | `seed` / `ahmia` / `verified` / `crawled` |
 | `depth` | INT | BFS depth at discovery |
-| `first_seen` | TEXT | ISO timestamp |
-| `last_checked` | TEXT | ISO timestamp, nullable |
-| `alive` | INT | 0/1, nullable until probed |
+| `first_seen` / `last_checked` | TEXT | ISO timestamps |
+| `alive` | INT | 0/1, nullable |
 | `http_status` | INT | nullable |
 | `title` | TEXT | nullable |
 | `response_ms` | INT | nullable |
 | `category` | TEXT | default `unknown` |
 | `category_confidence` | REAL | 0.0–1.0 |
 | `matched_terms` | TEXT | JSON array |
-| `snippet` | TEXT | ≤500 chars, nullable |
+| `snippet` | TEXT | ≤500 chars |
+| `content_simhash` | TEXT | 64-bit fingerprint |
+| `cluster_id` | TEXT | nullable |
+| `is_canonical` | INT | 0/1 |
+| `clone_of` | TEXT | canonical url, nullable |
+| `trust` | TEXT | verified / probable / unknown / suspected_clone |
+| `pgp_fingerprint` | TEXT | nullable |
+| `inbound_links` | INT | count of internal discoverers |
+
+### `frontier` (resumable crawl)
+`url` PK, `depth`, `state` (pending/in_progress/done/failed), `enqueued_at`,
+`attempts`.
+
+### `clusters`
+`cluster_id` PK, `canonical_url`, `member_count`, `chosen_by`
+(verified/pgp/first_seen/inbound).
 
 ### `crawl_runs`
-| column | type |
-| --- | --- |
-| `run_id` | TEXT PK |
-| `started_at` | TEXT |
-| `finished_at` | TEXT |
-| `seeds_count` | INT |
-| `discovered` | INT |
-| `alive_count` | INT |
+`run_id` PK, `started_at`, `finished_at`, `seeds_count`, `discovered`,
+`alive_count`, `stop_reason` (max_urls/time_budget/frontier_empty).
 
-## Config — `config.toml`
+### `leak_hits`
+`hit_id` PK, `run_id`, `url`, `host`, `category`, `trust`, `term`,
+`context_snippet`, `matched_at`.
 
+## Config
+
+### `config.toml`
 ```toml
-socks_proxy      = "socks5://127.0.0.1:9050"
-max_depth        = 2
-concurrency      = 5
-per_host_delay   = 2.0     # seconds
-request_timeout  = 60.0    # seconds
-max_retries      = 3
-user_agent       = "dwcollector/0.1"
-ahmia_enabled    = true
-snippet_chars    = 500
+socks_proxy       = "socks5://tor:9050"   # docker; or 127.0.0.1:9050 on host
+tor_control_port  = 9051
+max_depth         = 0        # 0 = unlimited
+max_urls          = 50000    # per-run safety cap
+time_budget_min   = 120      # per-run wall-clock cap
+per_host_page_cap = 500
+concurrency       = 8
+per_host_delay    = 2.0
+request_timeout   = 60.0
+max_retries       = 3
+user_agent        = "dwcollector/0.1"
+ahmia_enabled     = true
+snippet_chars     = 500
+simhash_distance  = 3        # max Hamming distance = same site
 ```
+
+### `verified_sources.toml`
+Operator-maintained list of trusted mirror directories / verified onion
+addresses and (optional) expected PGP key fingerprints — the source of truth for
+clone detection.
+
+### `categories.toml`
+Category → keyword/regex ruleset (see §3).
 
 ## CLI
 
 ```
-dwcollector crawl                    # discovery + liveness + categorise -> DB
-dwcollector probe                    # re-check liveness of known URLs only
-dwcollector categorize               # re-apply categories.toml to stored snippets
-dwcollector export --format csv|json [--category marketplace]
-dwcollector stats                    # totals: all / alive / by source / by category
+dwcollector crawl [--resume]         # deep discovery + liveness + fingerprint + categorise
+dwcollector probe                    # re-check liveness of known URLs
+dwcollector categorize               # re-apply categories.toml to snippets
+dwcollector cluster                  # (re)run clone/original detection
+dwcollector hunt --terms client.txt  # search canonical legit sites for client data
+dwcollector export --format csv|json [--trust verified --category leak-site]
+dwcollector stats                    # totals: alive / by source / category / trust / clusters
 ```
 
 ## Project layout
 
 ```
 dwcollector/
+├── docker-compose.yml
+├── Dockerfile
+├── tor/torrc
 ├── src/dwcollector/
 │   ├── __init__.py
-│   ├── config.py        # load config.toml + categories.toml
-│   ├── db.py            # schema, upserts, queries
-│   ├── tor_client.py    # httpx client bound to Tor SOCKS; retry/backoff
-│   ├── discover.py      # frontier, BFS worker pool, link extraction
+│   ├── config.py        # load config.toml / categories.toml / verified_sources.toml
+│   ├── db.py            # schema, upserts, queries, frontier
+│   ├── tor_client.py    # httpx over SOCKS; retries; circuit rotation (stem)
+│   ├── discover.py      # resumable BFS worker pool, link extraction
 │   ├── probe.py         # liveness checks
 │   ├── categorize.py    # keyword-rule classifier
+│   ├── fingerprint.py   # simhash over normalized content
+│   ├── cluster.py       # clustering + verified-anchor canonical selection
+│   ├── verify.py        # ingest verified_sources, PGP fingerprint match
+│   ├── hunt.py          # leak search over canonical sites
 │   └── cli.py           # argparse entrypoint
-├── tests/               # offline unit tests (mocked responses)
-├── seeds.txt
-├── config.toml
-├── categories.toml
-├── requirements.txt
-├── README.md
-└── .gitignore
+├── tests/               # offline unit tests (mocked responses/HTML)
+├── data/                # dwcollector.db (gitignored)
+├── seeds.txt · config.toml · categories.toml · verified_sources.toml
+├── requirements.txt · README.md · .gitignore
 ```
 
 ## Testing
 
-- **Unit tests (offline, default):** link extraction, `.onion` regex, dedup, DB
-  upserts/queries, and the categoriser — all with mocked HTML/responses. No live
-  Tor required.
-- **Smoke test (opt-in):** a single marked test that fetches one known site
-  through live Tor, skipped by default.
+- **Unit (offline, default):** link extraction, `.onion` regex, dedup, frontier
+  state machine, DB ops, categoriser, simhash fingerprint + Hamming distance,
+  clustering + canonical selection, leak-term matching — all mocked, no live Tor.
+- **Smoke (opt-in):** one marked test fetching a known site through live Tor
+  (docker), skipped by default.
 
 ## Safety / scope
 
-- URL-discovery + liveness + categorisation only. No page-content archiving
-  beyond the bounded classification snippet.
-- No authentication, no form submission, no credential handling.
-- Polite by default (rate limits, backoff, timeouts).
-- `.gitignore` excludes `dwcollector.db`, `seeds.txt`, the venv, and exports so
-  collected data and seed sources are never committed.
+- Threat-hunting tool for **authorised** leak detection on a client's own data.
+- Clone detection anchors to verified sources; ambiguous items are surfaced for
+  review, never silently trusted.
+- Leak hunt stores only **matches + short context**, never full leaked datasets.
+- No authentication, form submission, or credential handling. Polite by default.
+- `.gitignore` excludes the DB, `seeds.txt`, `verified_sources.toml`, exports,
+  and the venv, so collected data and sources are never committed.
 
 ## Defaults confirmed
 
-`max_depth=2`, `concurrency=5`, Ahmia pull **on**, bounded snippet **stored**.
+Clone detection = **verified anchor + clustering** · depth = **deep with safety
+caps, resumable** · scope = **collector + leak hunt** · Docker Tor = default
+proxy · `concurrency=8`, `simhash_distance=3`, Ahmia **on**, snippet **stored**.
+```
