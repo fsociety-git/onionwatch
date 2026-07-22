@@ -3,7 +3,9 @@ import hashlib
 import re
 
 def _tokens(text: str) -> list[str]:
-    return re.findall(r"[a-z0-9]+", text.lower())
+    # \w matches Unicode letters/digits (incl. Cyrillic, CJK, etc.), so
+    # non-Latin pages get real fingerprints instead of collapsing to simhash 0.
+    return re.findall(r"\w+", text.lower())
 
 def _token_hash(token: str, bits: int) -> int:
     digest = hashlib.blake2b(token.encode(), digest_size=8).digest()
