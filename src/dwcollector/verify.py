@@ -13,12 +13,23 @@ _FP_GROUP = re.compile(r"\b(?:[0-9A-Fa-f]{4}[ ]{1,2}){9}[0-9A-Fa-f]{4}\b")
 _HEX_GROUP_BEFORE = re.compile(r"\b[0-9A-Fa-f]{4}[ ]{1,2}\Z")
 _HEX_GROUP_AFTER = re.compile(r"\A[ ]{1,2}[0-9A-Fa-f]{4}\b")
 
-def _canon_fp(raw: str) -> str:
+def canon_fp(raw: str) -> str:
     return re.sub(r"[^0-9A-Fa-f]", "", raw).upper()
 
 def is_verified(url: str, verified: dict) -> bool:
     host = onion_host(url)
     return host in set(verified.get("verified_onions", []))
+
+def pgp_fingerprint_matches(host: str, stored_fp: str | None, verified: dict) -> bool:
+    """True only if stored_fp, canonicalized, equals verified['pgp'][host],
+    canonicalized. Used to validate a row's claimed PGP fingerprint against
+    the operator's known-good key before trusting it as a canonical tier."""
+    if not stored_fp:
+        return False
+    expected = verified.get("pgp", {}).get(host)
+    if not expected:
+        return False
+    return canon_fp(stored_fp) == canon_fp(expected)
 
 def pgp_fingerprint_in_page(text: str) -> str | None:
     for m in _FP_GROUP.finditer(text):
@@ -28,7 +39,7 @@ def pgp_fingerprint_in_page(text: str) -> str | None:
             # grouped-hex run. Fail closed rather than return a truncated
             # fingerprint.
             continue
-        return _canon_fp(m.group(0))
+        return canon_fp(m.group(0))
     return None
 
 def pgp_matches(url: str, page_text: str, verified: dict) -> bool:
@@ -37,4 +48,4 @@ def pgp_matches(url: str, page_text: str, verified: dict) -> bool:
     if not expected:
         return False
     got = pgp_fingerprint_in_page(page_text)
-    return got is not None and got == _canon_fp(expected)
+    return got is not None and got == canon_fp(expected)

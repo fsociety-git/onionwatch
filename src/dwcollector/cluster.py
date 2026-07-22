@@ -1,30 +1,55 @@
 from __future__ import annotations
 from .fingerprint import from_hex, hamming
-from .verify import is_verified
+from .verify import is_verified, pgp_fingerprint_matches
 
 def cluster_rows(rows: list[dict], distance: int) -> list[list[dict]]:
-    clusters: list[list[dict]] = []
-    reps: list[int] = []            # representative simhash per cluster
-    for r in rows:
-        sh = r.get("content_simhash")
-        if not sh:
-            clusters.append([r]); reps.append(None)
+    """Group rows into connected components of the "hamming(simhash) <=
+    distance" graph (single-linkage / transitive clustering), via union-find.
+
+    A row joins a cluster if it is within `distance` of ANY member of that
+    cluster, not just the cluster's first member -- so if A~B and B~C but
+    A is not directly ~C, all three still end up in one cluster regardless
+    of processing order. Rows without a content_simhash never get unioned
+    with anything and so remain singletons.
+    """
+    n = len(rows)
+    parent = list(range(n))
+
+    def find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a: int, b: int) -> None:
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[ra] = rb
+
+    vals: list[int | None] = [
+        from_hex(sh) if (sh := r.get("content_simhash")) else None for r in rows
+    ]
+
+    for i in range(n):
+        if vals[i] is None:
             continue
-        val = from_hex(sh)
-        placed = False
-        for i, rep in enumerate(reps):
-            if rep is not None and hamming(val, rep) <= distance:
-                clusters[i].append(r); placed = True; break
-        if not placed:
-            clusters.append([r]); reps.append(val)
-    return clusters
+        for j in range(i + 1, n):
+            if vals[j] is None:
+                continue
+            if hamming(vals[i], vals[j]) <= distance:
+                union(i, j)
+
+    groups: dict[int, list[dict]] = {}
+    for i, r in enumerate(rows):
+        groups.setdefault(find(i), []).append(r)
+    return list(groups.values())
 
 def choose_canonical(cluster: list[dict], verified: dict) -> tuple[dict, str]:
     for r in cluster:
         if is_verified(r["url"], verified):
             return r, "verified"
     for r in cluster:
-        if r.get("pgp_fingerprint"):
+        if pgp_fingerprint_matches(r.get("host"), r.get("pgp_fingerprint"), verified):
             return r, "pgp"
     with_seen = [r for r in cluster if r.get("first_seen")]
     if with_seen:
