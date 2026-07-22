@@ -1,0 +1,29 @@
+services:
+  tor:
+    image: dperson/torproxy
+    volumes:
+      - ./tor/torrc:/etc/tor/torrc:ro
+    expose:
+      - "9050"
+      - "9051"
+    restart: unless-stopped
+
+  dwcollector:
+    build: .
+    depends_on:
+      - tor
+    volumes:
+      - ./data:/app/data
+      - ./seeds.txt:/app/seeds.txt:ro
+      - ./verified_sources.toml:/app/verified_sources.toml:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+    # 24/7 operation: run the supervisor loop by default (crawl --resume +
+    # cluster, every --interval seconds, forever) and restart the container
+    # if it ever exits (crash, OOM, host reboot) so `docker compose up -d`
+    # gives a self-restarting continuous crawler on a dedicated VM.
+    command: ["loop", "--interval", "1800"]
+    restart: unless-stopped
+    # override the default at run time for one-off commands, e.g.:
+    #   docker compose run --rm dwcollector crawl
+    #   docker compose run --rm dwcollector stats
