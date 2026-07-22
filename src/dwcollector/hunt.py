@@ -11,10 +11,20 @@ def load_terms(path: str) -> list[str]:
                 terms.append(line)
     return terms
 
+REGEX_PREFIX = "re:"
+
 def match_terms(text: str, terms: list[str], ctx: int = 60) -> list[tuple[str, str]]:
     hits: list[tuple[str, str]] = []
     for term in terms:
-        for m in re.finditer(re.escape(term), text, re.IGNORECASE):
+        if term.startswith(REGEX_PREFIX):
+            pattern = term[len(REGEX_PREFIX):]
+            try:
+                compiled = re.compile(pattern, re.IGNORECASE)
+            except re.error:
+                continue
+        else:
+            compiled = re.compile(re.escape(term), re.IGNORECASE)
+        for m in compiled.finditer(text):
             start = max(0, m.start() - ctx)
             end = min(len(text), m.end() + ctx)
             hits.append((term, text[start:end].strip()))
