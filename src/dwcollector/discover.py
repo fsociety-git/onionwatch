@@ -1,5 +1,6 @@
 from __future__ import annotations
 import asyncio
+import json
 import re
 import time
 from collections import defaultdict
@@ -7,6 +8,9 @@ from dataclasses import dataclass
 from urllib.parse import urljoin, urlsplit, urlunsplit
 from selectolax.parser import HTMLParser
 from .tor_client import FetchResult  # re-export for tests/typing
+from .fingerprint import simhash, to_hex
+from .categorize import categorize
+from .probe import extract_title
 
 _ONION_RE = re.compile(r"\b([a-z2-7]{16}|[a-z2-7]{56})\.onion\b", re.IGNORECASE)
 
@@ -59,11 +63,27 @@ class RunStats:
     alive: int
     stop_reason: str
 
-async def crawl(config, db, client, seeds, run_id, now) -> RunStats:
+async def crawl(config, db, client, seeds, run_id, now, rules=None) -> RunStats:
+    if rules is None:
+        try:
+            from .config import load_categories
+            rules = load_categories("categories.toml")
+        except FileNotFoundError:
+            rules = {}
+
     # Retry URLs that were skipped by a per-host cap in a previous run, now
     # that this run starts with a fresh per-host budget. Must happen before
     # seeding/processing so the reset rows are eligible via next_pending().
     db.reset_state("deferred", "pending")
+    # 24/7 crash recovery: a previous crawler process may have been killed
+    # (OOM, host reboot, container restart) after next_pending() flipped a
+    # frontier row to 'in_progress' but before it was ever marked
+    # 'done'/'failed'/'deferred'. Such rows would otherwise be stranded
+    # forever, since next_pending() only selects state='pending'. Reset them
+    # so this run retries them. Safe because the deployment model is a single
+    # crawler process at a time -- there is no concurrently-running crawl
+    # whose legitimately-in-flight rows this could steal.
+    db.reset_state("in_progress", "pending")
 
     db.start_run(run_id, now, len(seeds))
     for s in seeds:
@@ -104,6 +124,19 @@ async def crawl(config, db, client, seeds, run_id, now) -> RunStats:
                 alive += 1
                 db.upsert_url(url, host or "", "crawled", depth, now)
                 db.update_url(url, alive=1, http_status=res.status, last_checked=now)
+                text = visible_text(res.html)
+                snippet = text[: config.snippet_chars]
+                title = extract_title(res.html)
+                cat = categorize(title or "", text, rules)
+                db.update_url(
+                    url,
+                    title=title,
+                    snippet=snippet,
+                    content_simhash=to_hex(simhash(text)),
+                    category=cat.category,
+                    category_confidence=cat.confidence,
+                    matched_terms=json.dumps(cat.matched_terms),
+                )
                 if config.max_depth == 0 or depth < config.max_depth:
                     for link in extract_onion_links(res.html, url):
                         if db.get_url(link) is None:

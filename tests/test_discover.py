@@ -199,3 +199,50 @@ async def test_capped_seed_still_gets_url_row(tmp_path):
 
     assert db.get_url(A) is not None
     assert db.get_url(B) is not None
+
+
+# --- Task 13: enrichment (title/snippet/simhash/category) persisted ---------
+
+@pytest.mark.asyncio
+async def test_crawl_enriches_rows(tmp_path):
+    A = "http://aaaaaaaaaaaaaaaa.onion/"
+    pages = {A: "<html><title>Acme Market</title><body>vendor escrow shop</body></html>"}
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    cfg = Config(max_urls=5, concurrency=1, per_host_delay=0)
+    rules = {"marketplace": ["market", "vendor", "escrow"]}
+    await crawl(cfg, db, FakeClient(pages), [A], "run3", "2026-07-21T00:00:00",
+                rules=rules)
+    row = db.get_url(A)
+    assert row["title"] == "Acme Market"
+    assert row["content_simhash"] is not None
+    assert row["category"] == "marketplace"
+    assert row["snippet"] and len(row["snippet"]) <= 500
+
+
+# --- Task 13: crash recovery — in_progress frontier rows are retried --------
+
+@pytest.mark.asyncio
+async def test_in_progress_url_retried_on_next_crawl(tmp_path):
+    """Simulate a crawler process killed mid-fetch: the frontier row is stuck
+    in 'in_progress' (next_pending() sets that state before the fetch even
+    starts). A fresh crawl process must reset such orphaned rows back to
+    'pending' and actually process them, not leave them stranded forever."""
+    HOST = "gggggggggggggggg.onion"
+    A = f"http://{HOST}/"
+    pages = {A: "<html><title>Recovered</title><body>content</body></html>"}
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+
+    # Simulate the crashed prior run: row exists and is stuck in_progress.
+    db.upsert_url(A, HOST, "seed", 0, "2026-07-21T00:00:00")
+    db.enqueue(A, 0)
+    db.next_pending(10)  # flips state to 'in_progress', as a real crawl would
+    row = db.conn.execute("SELECT state FROM frontier WHERE url=?", (A,)).fetchone()
+    assert row["state"] == "in_progress"
+
+    cfg = Config(max_urls=10, concurrency=1, per_host_delay=0)
+    await crawl(cfg, db, FakeClient(pages), [], "run_recover", "2026-07-21T01:00:00")
+
+    row2 = db.conn.execute("SELECT state FROM frontier WHERE url=?", (A,)).fetchone()
+    assert row2["state"] == "done"
+    url_row = db.get_url(A)
+    assert url_row["alive"] == 1
