@@ -11,10 +11,9 @@ from datetime import datetime, timezone
 from .config import load_config, load_categories, load_verified_sources
 from .db import Database
 from .tor_client import TorClient
-from .discover import crawl, visible_text
+from .discover import crawl
 from .probe import reprobe_all
 from .categorize import categorize
-from .fingerprint import simhash, to_hex
 from .cluster import run_clustering
 from .hunt import hunt, load_terms
 

@@ -1,4 +1,5 @@
 from __future__ import annotations
+import sys
 import tomllib
 from dataclasses import dataclass, fields
 
@@ -26,6 +27,11 @@ def _read_toml(path: str) -> dict:
 def load_config(path: str = "config.toml") -> Config:
     data = _read_toml(path)
     known = {f.name for f in fields(Config)}
+    # Surface typo'd/ignored tuning keys on an unattended box, then proceed.
+    ignored = [k for k in data if k not in known]
+    if ignored:
+        print(f"config: ignoring unknown key(s): {', '.join(sorted(ignored))}",
+              file=sys.stderr)
     return Config(**{k: v for k, v in data.items() if k in known})
 
 def load_categories(path: str = "categories.toml") -> dict[str, list[str]]:

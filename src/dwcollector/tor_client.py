@@ -43,6 +43,8 @@ class TorClient:
                 return FetchResult(url, resp.status_code, resp.text, elapsed, True)
             except (httpx.HTTPError, httpx.ConnectError) as exc:
                 last_exc = exc
-                await asyncio.sleep(min(2 ** attempt, 10))
+                # Don't sleep after the final attempt -- we're about to give up.
+                if attempt < self.config.max_retries - 1:
+                    await asyncio.sleep(min(2 ** attempt, 10))
         elapsed = int((time.monotonic() - start) * 1000)
         return FetchResult(url, None, "", elapsed, False)

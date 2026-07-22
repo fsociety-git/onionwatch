@@ -17,6 +17,22 @@ def test_load_config_defaults(tmp_path):
     assert cfg.request_timeout == 60.0
     assert cfg.ahmia_enabled is True
 
+def test_load_config_warns_on_unknown_keys(tmp_path, capsys):
+    # Fix 5: a typo'd tuning key must be surfaced on stderr (not silently
+    # dropped) so it's visible on an unattended box -- then load proceeds.
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text(
+        "concurrency = 4\n"
+        "conccurency = 99\n"          # typo -> should be reported
+        'unknown_option = "x"\n'
+    )
+    cfg = load_config(str(cfg_file))
+    assert cfg.concurrency == 4       # known key still applied
+    err = capsys.readouterr().err
+    assert "conccurency" in err
+    assert "unknown_option" in err
+
+
 def test_load_categories(tmp_path):
     f = tmp_path / "categories.toml"
     f.write_text('marketplace = ["market", "vendor"]\nforum = ["forum", "board"]\n')

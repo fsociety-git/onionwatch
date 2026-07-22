@@ -5,6 +5,14 @@ def make_db(tmp_path):
     db.init_schema()
     return db
 
+def test_wal_and_busy_timeout_pragmas(tmp_path):
+    # Fix 4: a file-backed DB must open in WAL with a busy_timeout, so an
+    # overlapping one-off command doesn't hit "database is locked".
+    db = make_db(tmp_path)
+    mode = db.conn.execute("PRAGMA journal_mode").fetchone()[0]
+    assert mode.lower() == "wal"
+    assert db.conn.execute("PRAGMA busy_timeout").fetchone()[0] == 5000
+
 def test_upsert_and_get(tmp_path):
     db = make_db(tmp_path)
     db.upsert_url("http://a.onion/", "a.onion", "seed", 0, "2026-07-21T00:00:00")

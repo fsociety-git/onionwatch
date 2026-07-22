@@ -43,6 +43,12 @@ class Database:
     def __init__(self, path: str):
         self.conn = sqlite3.connect(path)
         self.conn.row_factory = sqlite3.Row
+        # Concurrency safety: WAL lets a reader (stats/export) run without
+        # blocking the writer, and busy_timeout makes a second writer wait up
+        # to 5s for the lock instead of failing immediately with "database is
+        # locked" if a one-off command overlaps the loop service.
+        self.conn.execute("PRAGMA journal_mode=WAL")
+        self.conn.execute("PRAGMA busy_timeout=5000")
 
     def init_schema(self) -> None:
         self.conn.executescript(SCHEMA)
