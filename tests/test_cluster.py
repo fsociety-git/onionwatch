@@ -75,9 +75,11 @@ def test_run_clustering_writes_trust(tmp_path):
 # and land in its own cluster despite being a genuine near-duplicate of B.
 # Correct single-linkage clustering must still merge all three into one
 # cluster, regardless of the order rows are processed in.
-_SH_A = "0000000000000000"
-_SH_B = "0000000000000003"
-_SH_C = "000000000000000f"
+# (High bit set so none decodes to 0 -- a 0 simhash now means "no
+# fingerprint" and is forced to its own singleton, see Fix 1.)
+_SH_A = "8000000000000000"
+_SH_B = "8000000000000003"
+_SH_C = "800000000000000f"
 
 def test_cluster_rows_transitive_single_linkage_forward_order():
     rows = [row("http://a.onion/", _SH_A),
@@ -95,6 +97,20 @@ def test_cluster_rows_transitive_single_linkage_reverse_order():
     clusters = cluster_rows(rows, distance=2)
     assert len(clusters) == 1
     assert len(clusters[0]) == 3
+
+def test_cluster_rows_zero_or_empty_simhash_are_singletons():
+    # Fix 1: an all-zero fingerprint ("0000000000000000") means "no
+    # fingerprint" -- empty pages and (pre-fix) non-Latin pages produced it.
+    # Such rows must NEVER cluster together; each is its own singleton, even
+    # though their simhash strings are byte-identical.
+    rows = [
+        row("http://a.onion/", "0000000000000000"),   # decodes to 0
+        row("http://b.onion/", "0000000000000000"),   # decodes to 0
+        row("http://c.onion/", ""),                    # empty / missing
+        row("http://d.onion/", None),                  # None
+    ]
+    clusters = cluster_rows(rows, distance=6)
+    assert sorted(len(c) for c in clusters) == [1, 1, 1, 1]
 
 def test_cluster_rows_does_not_over_merge_unrelated_pair():
     # hamming(0x0..0, 0xF..F) == 64 (measured), far beyond any sane distance.
@@ -165,7 +181,11 @@ def test_run_clustering_unknown_trust_for_unverified_multi_member_cluster(tmp_pa
     assert a["is_canonical"] == 1 and a["trust"] == "unknown"
     assert b["is_canonical"] == 0 and b["trust"] == "suspected_clone"
 
-def test_run_clustering_singleton_gets_probable_trust(tmp_path):
+def test_run_clustering_singleton_gets_unknown_trust(tmp_path):
+    # Fix 3: a lone, un-anchored site is NOT auto-trusted. Trust must come from
+    # an anchor (verified list or validated PGP), never from being un-clustered
+    # -- otherwise a phishing clone whose real original was never crawled would
+    # be treated as legit. A singleton with no anchor -> "unknown".
     db = Database(str(tmp_path / "t.db")); db.init_schema()
     sh = to_hex(simhash("a totally unique page about rare stamps and coin collecting"))
     db.upsert_url("http://cccccccccccccccc.onion/", "cccccccccccccccc.onion",
@@ -175,4 +195,35 @@ def test_run_clustering_singleton_gets_probable_trust(tmp_path):
     n = run_clustering(db, verified, distance=6)
     assert n == 1
     c = db.get_url("http://cccccccccccccccc.onion/")
-    assert c["is_canonical"] == 1 and c["trust"] == "probable"
+    assert c["is_canonical"] == 1 and c["trust"] == "unknown"
+
+
+def test_run_clustering_verified_singleton_gets_verified_trust(tmp_path):
+    # A singleton that IS anchored (on the verified list) is still "verified".
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    sh = to_hex(simhash("official acme market front page welcome vendors escrow here"))
+    db.upsert_url("http://dddddddddddddddd.onion/", "dddddddddddddddd.onion",
+                  "crawled", 1, "2026-07-21T00:00:00")
+    db.update_url("http://dddddddddddddddd.onion/", content_simhash=sh)
+    verified = {"verified_onions": ["dddddddddddddddd.onion"], "pgp": {}}
+    n = run_clustering(db, verified, distance=6)
+    assert n == 1
+    d = db.get_url("http://dddddddddddddddd.onion/")
+    assert d["is_canonical"] == 1 and d["trust"] == "verified"
+
+
+def test_run_clustering_pgp_validated_singleton_gets_probable_trust(tmp_path):
+    # A singleton anchored by a validated PGP fingerprint -> "probable".
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    sh = to_hex(simhash("official acme market front page welcome vendors escrow here"))
+    fp = "AAAABBBBCCCCDDDDEEEEFFFF0000111122223333"
+    db.upsert_url("http://eeeeeeeeeeeeeeee.onion/", "eeeeeeeeeeeeeeee.onion",
+                  "crawled", 1, "2026-07-21T00:00:00")
+    db.update_url("http://eeeeeeeeeeeeeeee.onion/", content_simhash=sh,
+                  pgp_fingerprint=fp)
+    verified = {"verified_onions": [],
+                "pgp": {"eeeeeeeeeeeeeeee.onion": fp}}
+    n = run_clustering(db, verified, distance=6)
+    assert n == 1
+    e = db.get_url("http://eeeeeeeeeeeeeeee.onion/")
+    assert e["is_canonical"] == 1 and e["trust"] == "probable"

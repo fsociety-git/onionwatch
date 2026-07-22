@@ -9,8 +9,11 @@ def cluster_rows(rows: list[dict], distance: int) -> list[list[dict]]:
     A row joins a cluster if it is within `distance` of ANY member of that
     cluster, not just the cluster's first member -- so if A~B and B~C but
     A is not directly ~C, all three still end up in one cluster regardless
-    of processing order. Rows without a content_simhash never get unioned
-    with anything and so remain singletons.
+    of processing order. Rows without a content_simhash -- or whose simhash
+    decodes to 0, which means "no fingerprint" (an empty or non-tokenizable
+    page) -- never get unioned with anything and so remain singletons. This
+    prevents every fingerprint-less page collapsing into one bogus
+    hamming-0 cluster.
     """
     n = len(rows)
     parent = list(range(n))
@@ -26,9 +29,14 @@ def cluster_rows(rows: list[dict], distance: int) -> list[list[dict]]:
         if ra != rb:
             parent[ra] = rb
 
-    vals: list[int | None] = [
-        from_hex(sh) if (sh := r.get("content_simhash")) else None for r in rows
-    ]
+    def _val(r: dict) -> int | None:
+        sh = r.get("content_simhash")
+        if not sh:
+            return None
+        v = from_hex(sh)
+        return v if v != 0 else None
+
+    vals: list[int | None] = [_val(r) for r in rows]
 
     for i in range(n):
         if vals[i] is None:
@@ -63,14 +71,18 @@ def run_clustering(db, verified: dict, distance: int) -> int:
     for idx, cluster in enumerate(clusters):
         cluster_id = f"c{idx:06d}"
         canon, why = choose_canonical(cluster, verified)
-        singleton = len(cluster) == 1
         db.set_cluster(cluster_id, canon["url"], len(cluster), why)
         for r in cluster:
             is_canon = r["url"] == canon["url"]
             if is_canon:
+                # Trust comes ONLY from an anchor: the verified list, or a
+                # validated PGP fingerprint. A singleton or an unverified
+                # multi-member cluster head is "unknown" -- never auto-trusted,
+                # so a phishing clone whose real original was never crawled
+                # can't be treated as legit just for being un-clustered.
                 if why == "verified":
                     trust = "verified"
-                elif why == "pgp" or singleton:
+                elif why == "pgp":
                     trust = "probable"
                 else:
                     trust = "unknown"

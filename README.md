@@ -63,6 +63,54 @@ is reset to `pending` and retried on the next `crawl`.
 
 crawl → (fingerprint + categorise inline) → cluster → hunt
 
+## Trust model & hunt scope
+
+`cluster` assigns trust only from an **anchor**, never from a site merely being
+un-clustered:
+
+- `verified` — the onion is in your `verified_sources.toml` `verified_onions`.
+- `probable` — the canonical row carries a PGP fingerprint (extracted from the
+  page during `crawl`) that matches the host's key in `verified_sources.toml`.
+- `unknown` — a lone site, or a cluster head with no anchor. **Not** auto-trusted.
+- `suspected_clone` — a non-canonical member of a clone cluster.
+
+`hunt` scans only the anchored legit sites (`verified` / `probable`). A phishing
+clone whose real original was never crawled therefore can't be mistaken for a
+trusted site just because it stands alone. **You MUST populate
+`verified_sources.toml` for `hunt` to have any scope** — with no anchors, nothing
+is trusted and `hunt` has nothing to scan.
+
+`unknown` / `suspected_clone` sites are surfaced for operator review rather than
+auto-trusted — inspect them with, e.g.:
+
+    dwcollector export --trust unknown
+    dwcollector export --trust suspected_clone
+
+## Concurrency & single-writer safety
+
+The database opens in WAL mode with a busy timeout, but the design still assumes
+a **single writer**. Do **not** run one-off writing commands
+(`crawl` / `cluster` / `hunt`) while the `loop` service is running: a second
+crawl's `in_progress` reset can hijack the loop's in-flight frontier rows. Stop
+the service first (`docker compose stop dwcollector`), or run only read-only
+commands (`stats`, `export`) alongside the loop.
+
+## Known limitations / follow-ups
+
+Documented, not yet implemented:
+
+- **Clustering cost.** `cluster_rows` is O(n²) and re-runs over all URLs every
+  loop cycle; at tens of thousands of rows a cycle's clustering can exceed the
+  interval. Future: simhash banding / incremental clustering.
+- **No re-probe.** The `loop` never re-checks liveness or re-fingerprints sites
+  it already knows (discovered once = frozen). Future: periodic re-probe of
+  stale rows within the cycle.
+- **Crash recovery assumes one crawler.** The `in_progress` → `pending` reset is
+  safe only for a single crawler process; make it age-based before allowing
+  concurrent crawlers.
+- **`inbound_links` is never populated**, so the last-resort canonical
+  tiebreaker is currently inert.
+
 ## Tuning clone detection
 
 `cluster` groups URLs whose `content_simhash` values are within
