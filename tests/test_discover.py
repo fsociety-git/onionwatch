@@ -219,6 +219,55 @@ async def test_crawl_enriches_rows(tmp_path):
     assert row["snippet"] and len(row["snippet"]) <= 500
 
 
+# --- Fix 2: PGP fingerprint extracted from page text and persisted ----------
+
+@pytest.mark.asyncio
+async def test_crawl_populates_pgp_fingerprint(tmp_path):
+    """A crawled alive page whose visible text contains a PGP fingerprint must
+    have that fingerprint persisted (canonicalized 40-hex) on its url row, so
+    the validated-PGP canonical tier has something to check against."""
+    A = "http://aaaaaaaaaaaaaaaa.onion/"
+    fp_shown = "AAAA BBBB CCCC DDDD EEEE FFFF 0000 1111 2222 3333"
+    pages = {A: f"<html><body><p>Contact key: {fp_shown}</p></body></html>"}
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    cfg = Config(max_urls=5, concurrency=1, per_host_delay=0)
+    await crawl(cfg, db, FakeClient(pages), [A], "run_pgp", "2026-07-21T00:00:00")
+    row = db.get_url(A)
+    assert row["pgp_fingerprint"] == "AAAABBBBCCCCDDDDEEEEFFFF0000111122223333"
+
+
+@pytest.mark.asyncio
+async def test_crawl_pgp_fingerprint_none_when_absent(tmp_path):
+    """No fingerprint in the page -> pgp_fingerprint stays NULL (not a stray)."""
+    A = "http://aaaaaaaaaaaaaaaa.onion/"
+    pages = {A: "<html><body><p>just some ordinary market text</p></body></html>"}
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    cfg = Config(max_urls=5, concurrency=1, per_host_delay=0)
+    await crawl(cfg, db, FakeClient(pages), [A], "run_nopgp", "2026-07-21T00:00:00")
+    row = db.get_url(A)
+    assert row["pgp_fingerprint"] is None
+
+
+@pytest.mark.asyncio
+async def test_crawl_pgp_fingerprint_marks_canonical_via_pgp_tier(tmp_path):
+    """End-to-end: a crawled page's extracted fingerprint, when it matches
+    verified['pgp'] for that host, lets run_clustering mark it canonical via
+    the pgp tier with trust 'probable'."""
+    from dwcollector.cluster import run_clustering
+    A = "http://aaaaaaaaaaaaaaaa.onion/"
+    fp_shown = "AAAA BBBB CCCC DDDD EEEE FFFF 0000 1111 2222 3333"
+    pages = {A: f"<html><body><p>PGP: {fp_shown}</p></body></html>"}
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    cfg = Config(max_urls=5, concurrency=1, per_host_delay=0)
+    await crawl(cfg, db, FakeClient(pages), [A], "run_pgp2", "2026-07-21T00:00:00")
+    verified = {"verified_onions": [],
+                "pgp": {"aaaaaaaaaaaaaaaa.onion": fp_shown}}
+    run_clustering(db, verified, distance=3)
+    row = db.get_url(A)
+    assert row["is_canonical"] == 1
+    assert row["trust"] == "probable"
+
+
 # --- Task 13: crash recovery — in_progress frontier rows are retried --------
 
 @pytest.mark.asyncio

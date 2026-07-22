@@ -64,6 +64,10 @@ class RunStats:
     stop_reason: str
 
 async def crawl(config, db, client, seeds, run_id, now, rules=None) -> RunStats:
+    # Imported lazily to avoid a discover<->verify import cycle (verify imports
+    # onion_host from this module at load time).
+    from .verify import pgp_fingerprint_in_page
+
     if rules is None:
         try:
             from .config import load_categories
@@ -136,6 +140,7 @@ async def crawl(config, db, client, seeds, run_id, now, rules=None) -> RunStats:
                     category=cat.category,
                     category_confidence=cat.confidence,
                     matched_terms=json.dumps(cat.matched_terms),
+                    pgp_fingerprint=pgp_fingerprint_in_page(text),
                 )
                 if config.max_depth == 0 or depth < config.max_depth:
                     for link in extract_onion_links(res.html, url):
