@@ -287,3 +287,10 @@ class Database:
     def leak_hits_for_run(self, run_id) -> list[dict]:
         return [dict(r) for r in self.conn.execute(
             "SELECT * FROM leak_hits WHERE run_id = ?", (run_id,))]
+
+    def live_cluster_siblings(self, cluster_id, exclude_url) -> list[dict]:
+        if not cluster_id:
+            return []
+        return [dict(r) for r in self.conn.execute(
+            "SELECT * FROM urls WHERE cluster_id = ? AND url != ? AND alive = 1",
+            (cluster_id, exclude_url))]
