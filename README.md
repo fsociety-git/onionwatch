@@ -68,8 +68,8 @@ Terms support four rich matching modes — each is opt-in via a prefix:
 - **Literal (bare term):** case-insensitive substring match. `acme-corp.com` matches "ACME-CORP.COM", "acme-corp.com", and substrings like "my.acme-corp.com.net".
 - **Regex (`re:`):** compiled case-insensitively; use standard Python regex syntax. `re:acme-(corp|trading)` matches "acme-corp" or "acme-trading" in any case.
 - **Fuzzy (`fuzzy:`):** matches the term plus defanged/obfuscated forms — including bracket/paren notation (`acme[.]com`, `acme(dot)com`), dot-word (`acme dot com`), and Cyrillic homoglyphs disguised as Latin letters. `fuzzy:acme.com` catches "acme[.]com", "acme(.)com", "acme dot com", etc.
-- **Encoded (`enc:`):** matches base64, URL-encoded, and hex encodings of the term. `enc:ACME-API-KEY` finds "QUNNRy1BUEktS0VZ" (base64) and other variants in the text.
-- **Credential (`cred:`):** finds the term as a username/email in credential pairs (e.g., `username:password` or `email|apikey`). The password/secret is captured and stored **masked** (first part of identifier + masked secret). `cred:billing@acme-corp.com` finds "billing@acme-corp.com:mysecret" and records it as `billing@acme-corp.com:••••••••`.
+- **Encoded (`enc:`):** matches base64, URL-encoded, and hex encodings of the term. `enc:ACME-API-KEY` finds "QUNNRS1BUEktS0VZ" (base64) and other variants in the text.
+- **Credential (`cred:`):** finds the term as a username/email in credential pairs (e.g., `username:password` or `email|apikey`). The password/secret is captured and stored **masked** as `<identifier>:<bullet-chars>` (the secret is replaced with bullet characters, never stored in clear). `cred:billing@acme-corp.com` finds "billing@acme-corp.com:mysecret" and records it as `billing@acme-corp.com:••••••••`.
 
 **PII detectors:**
 
