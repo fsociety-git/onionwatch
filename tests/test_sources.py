@@ -66,6 +66,18 @@ async def test_harvest_isolates_failure_and_dedups():
 
 
 @pytest.mark.asyncio
+async def test_harvest_isolates_parse_failure(monkeypatch):
+    def boom(html, url):
+        raise RuntimeError("parse exploded")
+
+    monkeypatch.setattr("dwcollector.sources.extract_onion_links", boom)
+    page = '<a href="http://aaaaaaaaaaaaaaaa.onion/">m</a>'
+    sources = [{"name": "dir1", "type": "index", "url": "http://idx.onion/"}]
+    out = await harvest(MapClient({"http://idx.onion/": page}), sources, cap=10)  # must not raise
+    assert out == []
+
+
+@pytest.mark.asyncio
 async def test_harvest_caps_per_source():
     page = " ".join(f'<a href="http://{c*16}.onion/">x</a>' for c in "abcde")
     sources = [{"name": "d", "type": "index", "url": "http://i.onion/"}]

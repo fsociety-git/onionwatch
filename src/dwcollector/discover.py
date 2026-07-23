@@ -91,7 +91,7 @@ async def crawl(config, db, client, seeds, run_id, now, rules=None, sources=None
 
     if sources:
         from .sources import harvest          # lazy: sources.py imports from discover
-        for url, name in await harvest(client, sources, config.max_seeds_per_source):
+        for url, name in await harvest(client, sources, config.max_seeds_per_source, delay=config.per_host_delay):
             db.upsert_url(url, onion_host(url) or "", name, 0, now)
             db.enqueue(url, 0)
 
