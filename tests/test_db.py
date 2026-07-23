@@ -204,3 +204,43 @@ def test_live_cluster_siblings(tmp_path):
     urls = {s["url"] for s in sibs}
     assert urls == {"http://sib-alive.onion/"}
     assert db.live_cluster_siblings(None, "http://anchor.onion/") == []
+
+
+def test_migration_adds_disposition_and_suppressed_columns(tmp_path):
+    import sqlite3
+    p = str(tmp_path / "legacy.db")
+    c = sqlite3.connect(p)
+    # legacy findings/alerts WITHOUT the new columns
+    c.execute("CREATE TABLE findings (finding_id INTEGER PRIMARY KEY AUTOINCREMENT, "
+              "kind TEXT, dedup_key TEXT UNIQUE, url TEXT, host TEXT, term TEXT, "
+              "status TEXT, severity TEXT, first_seen TEXT, last_seen TEXT, "
+              "resolved_at TEXT, context_snippet TEXT)")
+    c.execute("CREATE TABLE alerts (alert_id INTEGER PRIMARY KEY AUTOINCREMENT, "
+              "finding_id INTEGER, dedup_key TEXT, event TEXT, severity TEXT, "
+              "title TEXT, body TEXT, created_at TEXT, delivered INTEGER, delivery_error TEXT)")
+    c.commit(); c.close()
+    db = Database(p); db.init_schema()                       # must not raise
+    fcols = {r[1] for r in db.conn.execute("PRAGMA table_info(findings)")}
+    acols = {r[1] for r in db.conn.execute("PRAGMA table_info(alerts)")}
+    assert {"disposition", "disposition_actor", "disposition_at"} <= fcols
+    assert "suppressed" in acols
+    dl = {r[1] for r in db.conn.execute("PRAGMA table_info(disposition_log)")}
+    assert {"finding_id", "disposition", "note", "actor", "at"} <= dl
+
+
+def test_record_alert_stores_suppressed(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    db.record_alert(1, "k", "opened", "critical", "t", "b",
+                    "2026-07-24T00:00:00", 0, None, suppressed=1)
+    row = list(db.conn.execute("SELECT suppressed FROM alerts"))[0]
+    assert row[0] == 1
+
+
+def test_get_finding_by_id(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    db.open_finding("leak", "leak:u|t", "u", "h", "t", "critical", "s", "2026-07-24T00:00:00")
+    f = db.get_finding("leak:u|t")
+    assert db.get_finding_by_id(f["finding_id"])["dedup_key"] == "leak:u|t"
+    assert db.get_finding_by_id(99999) is None
+    # a fresh finding defaults to disposition 'new'
+    assert f["disposition"] == "new"
