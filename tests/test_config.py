@@ -54,3 +54,22 @@ def test_load_verified_sources_lowercases_keys(tmp_path):
     assert verified["pgp"]["aaaabbbbccccdddd.onion"] == (
         "AAAA BBBB CCCC DDDD EEEE  FFFF 0000 1111 2222 3333"
     )
+
+def test_alert_config_defaults():
+    from dwcollector.config import Config
+    c = Config()
+    assert c.watchlist_terms == "terms.txt"
+    assert c.alerts_path == "data/alerts.jsonl"
+    assert c.alert_webhook == ""
+
+def test_alert_config_parsed_from_toml(tmp_path):
+    cfg_file = tmp_path / "c.toml"
+    cfg_file.write_text(
+        'watchlist_terms = "wl.txt"\n'
+        'alerts_path = "out/a.jsonl"\n'
+        'alert_webhook = "https://sink.local/hook"\n'
+    )
+    cfg = load_config(str(cfg_file))
+    assert cfg.watchlist_terms == "wl.txt"
+    assert cfg.alerts_path == "out/a.jsonl"
+    assert cfg.alert_webhook == "https://sink.local/hook"
