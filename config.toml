@@ -17,3 +17,7 @@ simhash_distance  = 3
 watchlist_terms = "terms.txt"
 alerts_path     = "data/alerts.jsonl"
 alert_webhook   = ""            # optional outbound POST target; "" disables
+
+# structured-PII shape detectors to run during hunts (opt-in; empty = off).
+# available: credit-card, iban, us-ssn
+pii_detectors = []
