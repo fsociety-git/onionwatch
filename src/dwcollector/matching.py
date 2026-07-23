@@ -167,7 +167,7 @@ def match_term(text: str, term: str, ctx: int = 60) -> list[Match]:
             rx = re.compile(pattern, re.IGNORECASE)
         except re.error:
             return []
-        return [Match("regex", pattern, _snippet(text, m.start(), m.end(), ctx))
+        return [Match("regex", term, _snippet(text, m.start(), m.end(), ctx))
                 for m in rx.finditer(text)]
 
     if term.startswith("fuzzy:"):

@@ -135,6 +135,17 @@ def test_match_term_regex_invalid_skipped():
     assert match_term("x", "re:[unclosed") == []
 
 
+def test_match_term_regex_key_keeps_full_prefixed_term():
+    # Backward compat: the pre-feature match_terms path recorded a regex hit's
+    # term as the full "re:PATTERN" string. Findings dedup on (url, term), so
+    # the Match.key here must stay the full prefixed term, not the stripped
+    # pattern, or upgrades will spuriously reopen/resolve existing findings.
+    ms = match_term("leak ACME-CUST-DB here", "re:ACME-[A-Z]+-DB")
+    assert len(ms) == 1
+    assert ms[0].kind == "regex"
+    assert ms[0].key == "re:ACME-[A-Z]+-DB"
+
+
 def test_match_term_fuzzy_matches_obfuscated_and_keys_on_identifier():
     ms = match_term("found acme[.]com in the paste", "fuzzy:acme.com")
     assert len(ms) == 1
