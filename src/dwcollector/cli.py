@@ -9,7 +9,7 @@ import sys
 import time
 from datetime import datetime, timezone
 
-from .config import load_config, load_categories, load_verified_sources
+from .config import load_config, load_categories, load_verified_sources, load_sources
 from .db import Database
 from .tor_client import TorClient
 from .discover import crawl
@@ -74,11 +74,12 @@ def _read_seeds(path: str) -> list[str]:
 
 def _run_crawl(cfg, db, args):
     seeds = [] if args.resume else _read_seeds(args.seeds)
+    sources = load_sources("sources.toml")
 
     async def go():
         async with TorClient(cfg) as client:
             stats = await crawl(cfg, db, client, seeds,
-                                 f"run-{_now()}", _now())
+                                 f"run-{_now()}", _now(), sources=sources)
             print(f"discovered={stats.discovered} alive={stats.alive} "
                   f"stop={stats.stop_reason}")
     asyncio.run(go())
@@ -188,11 +189,12 @@ def run_cycle(cfg, db, seeds_path: str = "seeds.txt",
 
     try:
         seeds = _read_seeds(seeds_path)
+        sources = load_sources("sources.toml")
 
         async def go():
             async with client_factory(cfg) as client:
                 out = crawl_fn(cfg, db, client, seeds,
-                                f"run-{_now()}", _now())
+                                f"run-{_now()}", _now(), sources=sources)
                 if inspect.isawaitable(out):
                     out = await out
                 return out
