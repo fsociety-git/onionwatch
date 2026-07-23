@@ -106,7 +106,7 @@ def _run_hunt(cfg, db, args):
 
     async def go():
         async with TorClient(cfg) as client:
-            n, _ = await hunt(db, client, terms, f"hunt-{_now()}", _now())
+            n, _ = await hunt(db, client, terms, f"hunt-{_now()}", _now(), detectors=cfg.pii_detectors)
             print("leak hits:", n)
     asyncio.run(go())
 
@@ -225,7 +225,7 @@ def run_cycle(cfg, db, seeds_path: str = "seeds.txt",
 
             async def go_hunt():
                 async with client_factory(cfg) as client:
-                    return await hunt(db, client, terms, run_id, _now())
+                    return await hunt(db, client, terms, run_id, _now(), detectors=cfg.pii_detectors)
 
             _, covered = asyncio.run(go_hunt())
             emitted = reconcile_leaks(db, cfg, run_id, covered, _now())

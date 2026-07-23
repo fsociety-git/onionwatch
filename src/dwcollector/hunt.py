@@ -1,6 +1,7 @@
 from __future__ import annotations
 import re
 from .discover import visible_text
+from .matching import find_matches
 
 def load_terms(path: str) -> list[str]:
     terms = []
@@ -30,7 +31,9 @@ def match_terms(text: str, terms: list[str], ctx: int = 60) -> list[tuple[str, s
             hits.append((term, text[start:end].strip()))
     return hits
 
-async def hunt(db, client, terms: list[str], run_id: str, now: str) -> tuple[int, set[str]]:
+async def hunt(db, client, terms: list[str], run_id: str, now: str,
+               detectors=None) -> tuple[int, set[str]]:
+    detectors = detectors or []
     count = 0
     covered: set[str] = set()
     for row in db.canonical_trusted_urls():
@@ -39,9 +42,10 @@ async def hunt(db, client, terms: list[str], run_id: str, now: str) -> tuple[int
             continue
         covered.add(row["url"])
         text = visible_text(res.html)
-        for term, ctx in match_terms(text, terms):
+        for mt in find_matches(text, terms, detectors):
             db.record_leak_hit(
                 run_id, row["url"], row["host"], row.get("category"),
-                row.get("trust"), term, ctx, now)
+                row.get("trust"), mt.key, mt.context, now,
+                match_kind=mt.kind, match_count=mt.count)
             count += 1
     return count, covered

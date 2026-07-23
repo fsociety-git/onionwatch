@@ -73,3 +73,18 @@ def test_alert_config_parsed_from_toml(tmp_path):
     assert cfg.watchlist_terms == "wl.txt"
     assert cfg.alerts_path == "out/a.jsonl"
     assert cfg.alert_webhook == "https://sink.local/hook"
+
+
+def test_pii_detectors_default_empty():
+    from dwcollector.config import Config
+    assert Config().pii_detectors == []
+
+
+def test_pii_detectors_parsed_and_unknown_warned(tmp_path, capsys):
+    from dwcollector.config import load_config
+    p = tmp_path / "c.toml"
+    p.write_text('pii_detectors = ["credit-card", "not-real", "us-ssn"]\n')
+    c = load_config(str(p))
+    assert c.pii_detectors == ["credit-card", "us-ssn"]   # unknown dropped
+    err = capsys.readouterr().err
+    assert "not-real" in err                              # warned to stderr

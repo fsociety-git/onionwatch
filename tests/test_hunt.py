@@ -2,6 +2,7 @@ import pytest
 from dwcollector.hunt import match_terms, hunt
 from dwcollector.tor_client import FetchResult
 from dwcollector.db import Database
+from dwcollector.matching import find_matches  # noqa: F401 (ensures module import path)
 
 def test_match_terms_returns_context():
     text = "leak of acme corp dataset including admin@acme.com and more records"
@@ -102,3 +103,34 @@ async def test_hunt_covered_excludes_unreachable(tmp_path):
     n, covered = await hunt(db, client, ["admin@acme.com"], "run1", "2026-07-23T00:00:00")
     assert covered == {good}          # bad.onion was unreachable -> not covered
     assert n == 1                      # only good.onion produced a hit
+
+
+@pytest.mark.asyncio
+async def test_hunt_records_fuzzy_and_pii(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    u = "http://good.onion/"
+    db.upsert_url(u, "good.onion", "crawled", 1, "2026-07-23T00:00:00")
+    db.update_url(u, is_canonical=1, trust="verified", category="leak-site")
+    html = ("<html><body>leak of acme[.]com plus card 4111 1111 1111 1111"
+            "</body></html>")
+    n, covered = await hunt(db, SiteClient(html), ["fuzzy:acme.com"],
+                            "run1", "2026-07-23T00:00:00", detectors=["credit-card"])
+    assert covered == {u}
+    rows = {(r["term"], r["match_kind"]) for r in db.leak_hits_for_run("run1")}
+    assert ("acme.com", "fuzzy") in rows
+    assert ("pii:credit-card", "pii") in rows
+    # raw card digits never stored
+    assert all("4111111111111111" not in (r["context_snippet"] or "")
+               for r in db.leak_hits_for_run("run1"))
+
+
+@pytest.mark.asyncio
+async def test_hunt_defaults_no_detectors(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    u = "http://good.onion/"
+    db.upsert_url(u, "good.onion", "crawled", 1, "2026-07-23T00:00:00")
+    db.update_url(u, is_canonical=1, trust="verified", category="leak-site")
+    n, _ = await hunt(db, SiteClient("<html><body>acme.com</body></html>"),
+                      ["acme.com"], "run1", "2026-07-23T00:00:00")
+    row = db.leak_hits_for_run("run1")[0]
+    assert row["term"] == "acme.com" and row["match_kind"] == "literal"

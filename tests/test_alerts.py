@@ -167,3 +167,34 @@ def test_reconcile_dead_original_lifecycle(tmp_path):
     a3 = reconcile_dead_originals(db, cfg, "2026-07-23T04:00:00", emit_fn=ef)
     assert len(a3) == 1 and sink[-1][0] == "resolved"
     assert db.get_finding(key)["status"] == "resolved"
+
+
+from dwcollector.alerts import _title, _body
+
+
+def _pii_finding():
+    return {"kind": "leak", "dedup_key": "leak:http://x.onion/|pii:credit-card",
+            "url": "http://x.onion/", "host": "x.onion", "term": "pii:credit-card",
+            "severity": "critical", "context_snippet": "•••• •••• •••• 1111"}
+
+
+def _ident_finding():
+    return {"kind": "leak", "dedup_key": "leak:http://x.onion/|acme.com",
+            "url": "http://x.onion/", "host": "x.onion", "term": "acme.com",
+            "severity": "critical", "context_snippet": "…acme.com…"}
+
+
+def test_title_pii_reads_naturally():
+    t = _title(_pii_finding(), "opened")
+    assert "Credit-card" in t and "x.onion" in t
+    assert "Client identifier 'pii:" not in t
+
+
+def test_title_identifier_unchanged():
+    assert _title(_ident_finding(), "opened") == \
+        "Client identifier 'acme.com' exposed on x.onion"
+
+
+def test_body_pii_does_not_leak_raw_but_shows_masked():
+    b = _body(_pii_finding(), "opened")
+    assert "1111" in b and "•" in b

@@ -1,7 +1,7 @@
 from __future__ import annotations
 import sys
 import tomllib
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, field
 
 @dataclass
 class Config:
@@ -22,6 +22,7 @@ class Config:
     watchlist_terms: str = "terms.txt"
     alerts_path: str = "data/alerts.jsonl"
     alert_webhook: str = ""          # empty = webhook disabled
+    pii_detectors: list[str] = field(default_factory=list)
 
 def _read_toml(path: str) -> dict:
     with open(path, "rb") as fh:
@@ -35,7 +36,16 @@ def load_config(path: str = "config.toml") -> Config:
     if ignored:
         print(f"config: ignoring unknown key(s): {', '.join(sorted(ignored))}",
               file=sys.stderr)
-    return Config(**{k: v for k, v in data.items() if k in known})
+    cfg = Config(**{k: v for k, v in data.items() if k in known})
+    if cfg.pii_detectors:
+        from .matching import available_detectors
+        valid = set(available_detectors())
+        unknown = [d for d in cfg.pii_detectors if d not in valid]
+        if unknown:
+            print(f"config: ignoring unknown pii_detectors: {', '.join(unknown)}",
+                  file=sys.stderr)
+        cfg.pii_detectors = [d for d in cfg.pii_detectors if d in valid]
+    return cfg
 
 def load_categories(path: str = "categories.toml") -> dict[str, list[str]]:
     return {k: list(v) for k, v in _read_toml(path).items()}
