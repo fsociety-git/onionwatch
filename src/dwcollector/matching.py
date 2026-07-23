@@ -81,3 +81,71 @@ def ssn_valid(s: str) -> bool:
     if group == "00" or serial == "0000":
         return False
     return True
+
+
+def _digits(s: str) -> str:
+    return re.sub(r"\D", "", s)
+
+
+def _mask_card(raw: str) -> str:
+    d = _digits(raw)
+    return "•••• •••• •••• " + d[-4:]
+
+
+def _mask_ssn(raw: str) -> str:
+    return "•••-••-" + raw[-4:]
+
+
+def _mask_iban(raw: str) -> str:
+    s = raw.replace(" ", "")
+    return "•" * max(0, len(s) - 4) + s[-4:]
+
+
+_DETECTORS = {
+    "credit-card": {
+        "regex": re.compile(r"\b(?:\d[ -]?){13,19}\b"),
+        "normalize": _digits,
+        "validate": luhn_valid,
+        "mask": _mask_card,
+    },
+    "iban": {
+        "regex": re.compile(r"\b[A-Z]{2}\d{2}[A-Z0-9]{10,30}\b"),
+        "normalize": lambda m: m.replace(" ", ""),
+        "validate": iban_valid,
+        "mask": _mask_iban,
+    },
+    "us-ssn": {
+        "regex": re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),
+        "normalize": lambda m: m,
+        "validate": ssn_valid,
+        "mask": _mask_ssn,
+    },
+}
+
+
+def available_detectors() -> list[str]:
+    return list(_DETECTORS)
+
+
+def run_detectors(text: str, names: list[str]) -> list[Match]:
+    out: list[Match] = []
+    for name in names:
+        spec = _DETECTORS.get(name)
+        if spec is None:
+            continue
+        count = 0
+        sample = None
+        for m in spec["regex"].finditer(text):
+            raw = m.group(0)
+            try:
+                if not spec["validate"](spec["normalize"](raw)):
+                    continue
+            except Exception:  # noqa: BLE001 - one bad candidate never aborts the scan
+                continue
+            count += 1
+            if sample is None:
+                sample = spec["mask"](raw)
+        if count:
+            out.append(Match(kind="pii", key=f"pii:{name}",
+                             context=sample or "", count=count, masked_sample=sample))
+    return out

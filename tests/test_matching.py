@@ -1,5 +1,5 @@
 import base64
-from dwcollector.matching import Match, normalize_defang, encodings_of, luhn_valid, iban_valid, ssn_valid
+from dwcollector.matching import Match, normalize_defang, encodings_of, luhn_valid, iban_valid, ssn_valid, available_detectors, run_detectors
 
 
 def test_match_dataclass_defaults():
@@ -56,3 +56,29 @@ def test_ssn_valid():
     assert not ssn_valid("900-12-3456")    # area 9xx
     assert not ssn_valid("123-00-4567")    # group 00
     assert not ssn_valid("123456789")      # wrong format
+
+
+def test_available_detectors():
+    names = available_detectors()
+    assert {"credit-card", "iban", "us-ssn"} <= set(names)
+
+
+def test_run_detectors_aggregates_and_masks_cards():
+    text = "cards: 4111 1111 1111 1111 and 5555555555554444 plus junk 1234567890123456"
+    ms = run_detectors(text, ["credit-card"])
+    assert len(ms) == 1
+    m = ms[0]
+    assert m.key == "pii:credit-card" and m.kind == "pii"
+    assert m.count == 2                              # two Luhn-valid; the junk one fails
+    assert "1111111111111111" not in (m.masked_sample or "")   # raw never stored
+    assert "1111111111111111" not in m.context
+    assert m.masked_sample.endswith("1111")         # last-4 retained
+
+
+def test_run_detectors_unknown_name_skipped():
+    assert run_detectors("536-90-4399", ["not-a-detector"]) == []
+
+
+def test_run_detectors_no_false_positive_without_validation():
+    # 16 digits but not Luhn-valid -> no card finding
+    assert run_detectors("order 1234567890123456 shipped", ["credit-card"]) == []
