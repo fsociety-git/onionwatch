@@ -23,6 +23,12 @@ def _append_jsonl(path: str, payload: dict) -> None:
 
 
 def _title(finding: dict, event: str) -> str:
+    term = finding.get("term") or ""
+    if finding["kind"] == "leak" and term.startswith("pii:"):
+        label = term[len("pii:"):]
+        if event == "opened":
+            return f"{label.capitalize()} data detected on {finding['host']}"
+        return f"{label.capitalize()} exposure on {finding['host']} resolved"
     if finding["kind"] == "leak":
         if event == "opened":
             return f"Client identifier '{finding['term']}' exposed on {finding['host']}"
