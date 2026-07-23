@@ -63,10 +63,10 @@ with `re:` for regex patterns. Example:
 
 **Alert types:**
 
-- **CRITICAL** (`new-leak`): A client identifier was found on a verified original site,
+- **CRITICAL** (`new-leak`): A client identifier was found on a verified/probable trusted site,
   never seen there before. Severity: `critical`.
-- **HIGH** (`dead-original`): A verified original site that previously carried a client
-  identifier went dark / unreachable. Severity: `high`.
+- **HIGH** (`dead-original`): A verified/probable trusted site (a clone-detection anchor)
+  went dark / unreachable. Severity: `high`.
 
 Findings have an open/resolved lifecycle. A leak finding resolves when the
 identifier no longer appears on a URL the crawler can reach; a dead-original
@@ -79,7 +79,9 @@ false-resolving — they're unverified as resolved.
 - **Local log:** alerts are appended to `alerts_path` (configured in
   `config.toml`, default: `data/alerts.jsonl`) as JSON Lines records. Each
   record includes the event (opened/resolved), severity, kind, URL, host, term,
-  title, body, and a webhook delivery status.
+  title, body, created_at, and a dedup key. Webhook delivery status
+  (`delivered` / `delivery_error`) is not written to this file — it's recorded
+  in the internal DB-backed alerts table, surfaced via `dwcollector alerts`.
 - **Webhook:** if `alert_webhook` is configured (a URL), each alert is
   posted as JSON. Webhook failures do not block the crawler — they are logged
   and the cycle continues.
