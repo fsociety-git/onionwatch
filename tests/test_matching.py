@@ -1,5 +1,5 @@
 import base64
-from dwcollector.matching import Match, normalize_defang, encodings_of, luhn_valid, iban_valid, ssn_valid, available_detectors, run_detectors
+from dwcollector.matching import Match, normalize_defang, encodings_of, luhn_valid, iban_valid, ssn_valid, available_detectors, run_detectors, match_term
 
 
 def test_match_dataclass_defaults():
@@ -124,3 +124,43 @@ def test_run_detectors_aggregates_and_masks_ssns():
     assert "536-90-4399" not in (m.masked_sample or "")
     assert "457-55-5462" not in (m.masked_sample or "")
     assert (m.masked_sample or "").startswith("•••-••-")
+
+
+def test_match_term_literal_and_key():
+    ms = match_term("leak has acme.com inside", ["acme.com"][0])
+    assert len(ms) == 1 and ms[0].kind == "literal" and ms[0].key == "acme.com"
+
+
+def test_match_term_regex_invalid_skipped():
+    assert match_term("x", "re:[unclosed") == []
+
+
+def test_match_term_fuzzy_matches_obfuscated_and_keys_on_identifier():
+    ms = match_term("found acme[.]com in the paste", "fuzzy:acme.com")
+    assert len(ms) == 1
+    assert ms[0].kind == "fuzzy" and ms[0].key == "acme.com"
+    assert "acme.com" in ms[0].context           # snippet is from normalized text
+
+
+def test_match_term_encoded():
+    import base64
+    val = "acme-corp.com"
+    text = "row " + base64.b64encode(val.encode()).decode() + " end"
+    ms = match_term(text, "enc:" + val)
+    assert len(ms) >= 1 and ms[0].kind == "encoded" and ms[0].key == val
+
+
+def test_match_term_credential_pair_masks_secret():
+    ms = match_term("dump: billing@acme.com:SuperSecret1 more", "cred:billing@acme.com")
+    assert len(ms) == 1 and ms[0].kind == "credential" and ms[0].key == "billing@acme.com"
+    assert "SuperSecret1" not in ms[0].context   # secret never stored
+    assert "•" in ms[0].context
+
+
+def test_match_term_credential_requires_secret():
+    # bare identifier with no credential structure -> no credential match
+    assert match_term("email billing@acme.com listed", "cred:billing@acme.com") == []
+
+
+def test_match_term_empty_prefixed_value_skipped():
+    assert match_term("anything", "fuzzy:") == []

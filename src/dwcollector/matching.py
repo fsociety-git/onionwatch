@@ -149,3 +149,58 @@ def run_detectors(text: str, names: list[str]) -> list[Match]:
             out.append(Match(kind="pii", key=f"pii:{name}",
                              context=sample or "", count=count, masked_sample=sample))
     return out
+
+
+def _snippet(text: str, start: int, end: int, ctx: int) -> str:
+    return text[max(0, start - ctx):min(len(text), end + ctx)].strip()
+
+
+def match_term(text: str, term: str, ctx: int = 60) -> list[Match]:
+    if term.startswith("re:"):
+        pattern = term[3:]
+        try:
+            rx = re.compile(pattern, re.IGNORECASE)
+        except re.error:
+            return []
+        return [Match("regex", pattern, _snippet(text, m.start(), m.end(), ctx))
+                for m in rx.finditer(text)]
+
+    if term.startswith("fuzzy:"):
+        ident = term[len("fuzzy:"):]
+        if not ident:
+            return []
+        ntext, nident = normalize_defang(text), normalize_defang(ident)
+        out, i = [], ntext.find(nident)
+        while i != -1:
+            out.append(Match("fuzzy", ident, _snippet(ntext, i, i + len(nident), ctx)))
+            i = ntext.find(nident, i + 1)
+        return out
+
+    if term.startswith("enc:"):
+        val = term[len("enc:"):]
+        if not val:
+            return []
+        out = []
+        for e in encodings_of(val):
+            i = text.find(e)
+            while i != -1:
+                out.append(Match("encoded", val, _snippet(text, i, i + len(e), ctx)))
+                i = text.find(e, i + 1)
+        return out
+
+    if term.startswith("cred:"):
+        ident = term[len("cred:"):]
+        if not ident:
+            return []
+        rx = re.compile(re.escape(ident) + r"\s*[:,|]\s*(\S+)", re.IGNORECASE)
+        out = []
+        for m in rx.finditer(text):
+            secret = m.group(1)
+            masked = ident + ":" + "•" * min(len(secret), 8)
+            out.append(Match("credential", ident, masked))
+        return out
+
+    # default: literal case-insensitive substring
+    rx = re.compile(re.escape(term), re.IGNORECASE)
+    return [Match("literal", term, _snippet(text, m.start(), m.end(), ctx))
+            for m in rx.finditer(text)]
