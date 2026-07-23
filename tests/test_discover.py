@@ -295,3 +295,36 @@ async def test_in_progress_url_retried_on_next_crawl(tmp_path):
     assert row2["state"] == "done"
     url_row = db.get_url(A)
     assert url_row["alive"] == 1
+
+
+# --- Task 3: harvest sources as depth-0 seeds --------------------------------
+
+class _MapClient:
+    def __init__(self, pages): self.pages = pages
+    async def fetch(self, url):
+        if url in self.pages:
+            return FetchResult(url, 200, self.pages[url], 10, True)
+        return FetchResult(url, None, "", 10, False)
+
+
+@pytest.mark.asyncio
+async def test_crawl_harvests_sources_as_depth0_seeds(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    page = '<a href="http://aaaaaaaaaaaaaaaa.onion/">m</a>'
+    client = _MapClient({"http://idx.onion/": page})
+    sources = [{"name": "dir1", "type": "index", "url": "http://idx.onion/"}]
+    cfg = Config(max_urls=0, time_budget_min=60, per_host_delay=0)   # stop drain immediately; harvest runs first
+    await crawl(cfg, db, client, [], "run1", "2026-07-23T00:00:00", rules={}, sources=sources)
+    rows = db.all_urls()
+    assert any(r["source"] == "dir1" and "aaaaaaaaaaaaaaaa.onion" in r["url"]
+               and r["depth"] == 0 for r in rows)
+    assert db.count_frontier("pending") >= 1     # enqueued
+
+
+@pytest.mark.asyncio
+async def test_crawl_no_sources_unchanged(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    client = _MapClient({})
+    cfg = Config(max_urls=0, time_budget_min=60, per_host_delay=0)
+    await crawl(cfg, db, client, [], "run1", "2026-07-23T00:00:00", rules={}, sources=None)
+    assert db.all_urls() == []                    # nothing harvested
