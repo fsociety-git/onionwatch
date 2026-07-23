@@ -109,7 +109,7 @@ _DETECTORS = {
         "mask": _mask_card,
     },
     "iban": {
-        "regex": re.compile(r"\b[A-Z]{2}\d{2}[A-Z0-9]{10,30}\b"),
+        "regex": re.compile(r"\b[A-Z]{2}\d{2}(?:[ ]?[A-Z0-9]){10,30}\b"),
         "normalize": lambda m: m.replace(" ", ""),
         "validate": iban_valid,
         "mask": _mask_iban,

@@ -82,3 +82,28 @@ def test_run_detectors_unknown_name_skipped():
 def test_run_detectors_no_false_positive_without_validation():
     # 16 digits but not Luhn-valid -> no card finding
     assert run_detectors("order 1234567890123456 shipped", ["credit-card"]) == []
+
+
+def test_run_detectors_finds_space_formatted_iban():
+    text = "wire to iban GB82 WEST 1234 5698 7654 32 today"
+    ms = run_detectors(text, ["iban"])
+    assert len(ms) == 1
+    m = ms[0]
+    assert m.key == "pii:iban" and m.kind == "pii"
+    assert m.count == 1
+    raw_stripped = "GB82WEST12345698765432"
+    assert raw_stripped not in (m.masked_sample or "")
+    assert raw_stripped not in m.context
+    assert (m.masked_sample or "").endswith("5432")  # last-4 retained
+
+
+def test_run_detectors_aggregates_and_masks_ssns():
+    text = "ssns: 536-90-4399 and 457-55-5462 but not 000-12-3456"
+    ms = run_detectors(text, ["us-ssn"])
+    assert len(ms) == 1
+    m = ms[0]
+    assert m.key == "pii:us-ssn" and m.kind == "pii"
+    assert m.count == 2                              # two valid; the invalid one (area 000) fails
+    assert "536-90-4399" not in (m.masked_sample or "")
+    assert "457-55-5462" not in (m.masked_sample or "")
+    assert (m.masked_sample or "").startswith("•••-••-")
