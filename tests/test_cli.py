@@ -294,3 +294,56 @@ def test_alerts_command_lists_findings(tmp_path, capsys):
     _run_alerts(db, args_all)
     out_all = capsys.readouterr().out
     assert "total: 2" in out_all
+
+
+def test_run_cycle_passes_sources_to_crawl(tmp_path, monkeypatch):
+    import dwcollector.cli as cli_mod
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    cfg = Config(watchlist_terms=str(tmp_path / "none.txt"),
+                 alerts_path=str(tmp_path / "a.jsonl"))
+    src = [{"name": "s", "type": "index", "url": "http://i.onion/"}]
+    monkeypatch.setattr(cli_mod, "load_sources", lambda path: src)
+    monkeypatch.setattr(cli_mod, "load_verified_sources",
+                        lambda path: {"verified_onions": [], "pgp": {}, "directories": []})
+
+    recorded = {}
+
+    def crawl_stub(cfg, db, client, seeds, run_id, now, sources=None, **k):
+        recorded["sources"] = sources
+        return SimpleNamespace(discovered=0, alive=0, stop_reason="ok")
+
+    class _Stub:
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def fetch(self, url): return None
+
+    res = run_cycle(cfg, db, seeds_path=str(tmp_path / "seeds.txt"),
+                    crawl_fn=crawl_stub, cluster_fn=lambda *a, **k: 0,
+                    client_factory=lambda cfg: _Stub())
+    assert res["ok"] is True
+    assert recorded["sources"] == src
+
+
+def test_run_crawl_passes_sources(tmp_path, monkeypatch):
+    import dwcollector.cli as cli_mod
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    cfg = Config()
+    src = [{"name": "s", "type": "index", "url": "http://i.onion/"}]
+    monkeypatch.setattr(cli_mod, "load_sources", lambda path: src)
+    seeds_file = tmp_path / "seeds.txt"; seeds_file.write_text("")
+    recorded = {}
+
+    async def crawl_stub(cfg, db, client, seeds, run_id, now, sources=None, **k):
+        recorded["sources"] = sources
+        return SimpleNamespace(discovered=0, alive=0, stop_reason="ok")
+
+    class _Stub:
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def fetch(self, url): return None
+
+    monkeypatch.setattr(cli_mod, "crawl", crawl_stub)
+    monkeypatch.setattr(cli_mod, "TorClient", lambda cfg: _Stub())
+    args = SimpleNamespace(resume=False, seeds=str(seeds_file))
+    cli_mod._run_crawl(cfg, db, args)
+    assert recorded["sources"] == src

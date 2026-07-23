@@ -1,0 +1,17 @@
+# Seed sources harvested each crawl cycle (all fetched through Tor).
+# Copy to sources.toml and fill in real .onion addresses. Empty/absent = disabled.
+#
+# type = "index":  fetch the page and enqueue every onion link it contains.
+# type = "search": fetch url_template once per query keyword and enqueue the
+#                  onion links from each results page ({query} is url-encoded).
+
+# [[source]]
+# name = "ahmia-index"
+# type = "index"
+# url  = "http://<ahmia-onion-address>.onion/onions/"
+
+# [[source]]
+# name = "ahmia-search"
+# type = "search"
+# url_template = "http://<ahmia-onion-address>.onion/search/?q={query}"
+# queries = ["market", "leak", "shop", "forum", "carding"]

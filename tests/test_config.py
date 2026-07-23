@@ -88,3 +88,35 @@ def test_pii_detectors_parsed_and_unknown_warned(tmp_path, capsys):
     assert c.pii_detectors == ["credit-card", "us-ssn"]   # unknown dropped
     err = capsys.readouterr().err
     assert "not-real" in err                              # warned to stderr
+
+
+def test_max_seeds_per_source_default():
+    from dwcollector.config import Config
+    assert Config().max_seeds_per_source == 200
+
+
+def test_load_sources_missing_file_returns_empty(tmp_path):
+    from dwcollector.config import load_sources
+    assert load_sources(str(tmp_path / "nope.toml")) == []
+
+
+def test_load_sources_parses_and_skips_malformed(tmp_path, capsys):
+    from dwcollector.config import load_sources
+    p = tmp_path / "sources.toml"
+    p.write_text(
+        '[[source]]\n'
+        'name = "idx"\n'
+        'type = "index"\n'
+        'url = "http://i.onion/"\n\n'
+        '[[source]]\n'
+        'name = "srch"\n'
+        'type = "search"\n'
+        'url_template = "http://s.onion/?q={query}"\n'
+        'queries = ["market"]\n\n'
+        '[[source]]\n'          # malformed: index with no url
+        'name = "bad"\n'
+        'type = "index"\n'
+    )
+    srcs = load_sources(str(p))
+    assert {s["name"] for s in srcs} == {"idx", "srch"}
+    assert "bad" in capsys.readouterr().err

@@ -63,7 +63,7 @@ class RunStats:
     alive: int
     stop_reason: str
 
-async def crawl(config, db, client, seeds, run_id, now, rules=None) -> RunStats:
+async def crawl(config, db, client, seeds, run_id, now, rules=None, sources=None) -> RunStats:
     # Imported lazily to avoid a discover<->verify import cycle (verify imports
     # onion_host from this module at load time).
     from .verify import pgp_fingerprint_in_page
@@ -88,6 +88,12 @@ async def crawl(config, db, client, seeds, run_id, now, rules=None) -> RunStats:
     # crawler process at a time -- there is no concurrently-running crawl
     # whose legitimately-in-flight rows this could steal.
     db.reset_state("in_progress", "pending")
+
+    if sources:
+        from .sources import harvest          # lazy: sources.py imports from discover
+        for url, name in await harvest(client, sources, config.max_seeds_per_source, delay=config.per_host_delay):
+            db.upsert_url(url, onion_host(url) or "", name, 0, now)
+            db.enqueue(url, 0)
 
     db.start_run(run_id, now, len(seeds))
     for s in seeds:

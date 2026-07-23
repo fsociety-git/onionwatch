@@ -20,6 +20,7 @@ gitignored — they hold your own seed list, trust anchors, and watchlist):
     cp seeds.txt.example seeds.txt
     cp verified_sources.toml.example verified_sources.toml
     cp terms.txt.example terms.txt
+    cp sources.toml.example sources.toml  # optional
 
 - `seeds.txt` — one starting `.onion` URL per line; the crawler deep-discovers
   outward from these via link extraction.
@@ -28,6 +29,28 @@ gitignored — they hold your own seed list, trust anchors, and watchlist):
   mirror and assign trust levels.
 - `terms.txt` — client identifiers (email, domain, etc.) to hunt on verified
   sites; the watchlist file is optional and read every cycle if it exists.
+
+### Seed sources (broader discovery)
+
+`sources.toml` (optional; default absent = disabled) lists `.onion` directory
+indexes and search sources that are automatically harvested each crawl cycle
+through Tor, expanding the discovery frontier beyond manual seed URLs. Two source
+types are supported:
+
+- **Index sources** (`type = "index"`): the crawler fetches a directory page and
+  mines every `.onion` link it contains, enqueueing each as a depth-0 seed.
+- **Search sources** (`type = "search"`): the crawler queries a `.onion` search
+  index (e.g., Ahmia's onion mirror) with a list of keywords, extracting and
+  enqueueing `.onion` links from each results page.
+
+Each harvested onion is tagged with its source name for tracking provenance. The
+`max_seeds_per_source` config parameter (default: 200) caps seeds from each
+source per cycle. Harvesting is **failure-isolated**: if a source is unreachable,
+misconfigured, or returns invalid HTML, it is skipped and logged; one broken
+source never aborts the harvest or crawl. Participation is **fully opt-in** —
+with no `sources.toml` file, the crawler operates as before. **Note:** Tor-only
+— clearnet (HTTP/HTTPS) sources are not supported; all harvesting happens
+through the Tor client configured in `config.toml`.
 
 ## Run with Docker (recommended)
 
