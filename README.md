@@ -91,12 +91,44 @@ All PII matches are stored **masked**: credit cards as `•••• •••�
   never seen there before. Severity: `critical`.
 - **HIGH** (`dead_original`): A verified/probable trusted site (a clone-detection anchor)
   went dark / unreachable. Severity: `high`.
+- **HIGH** (`anchor_identity`): A PGP-anchored verified/probable trusted site failed
+  identity re-verification (fingerprint mismatch). Severity: `high`.
 
 Findings have an open/resolved lifecycle. A leak finding resolves when the
 identifier no longer appears on a URL the crawler can reach; a dead-original
 resolves when the site becomes reachable again. **Important:** findings on sites
 that the crawler cannot reach (coverage-gated) stay open rather than
 false-resolving — they're unverified as resolved.
+
+**Trust-anchor re-verification:**
+
+Every cycle, the crawler re-probes each verified/probable canonical anchor for
+fresh liveness — this is how the HIGH `dead_original` alert actually fires when
+an anchor goes dark. For **PGP-anchored sites only** (those with a fingerprint
+entry in `verified_sources.toml`), the crawler additionally performs identity
+re-verification: it extracts the site's advertised PGP fingerprint from the page
+and confirms it matches the operator's known-good key. A fingerprint mismatch
+raises a HIGH `anchor_identity` alert.
+
+**Safety cutout:** A dead or identity-failed anchor is never searched, so the
+client watchlist is never sent to a compromised anchor. This prevents leaking
+identifiers to an attacker who has hijacked a domain or impersonated a trusted
+site.
+
+**Re-anchor candidates:** Alerts for dead or identity-failed anchors include
+suggested successor candidates — live sibling sites in the same cluster,
+included as a note: "verify before trusting — candidate successors: [URL list]".
+These candidates are **never auto-added** to the trust list; promotion to
+verified/probable status requires manual operator review and editing of
+`verified_sources.toml`.
+
+**Identity checks are PGP-anchors-only:** Allow-listed onions in
+`verified_sources.toml` (without a corresponding PGP fingerprint entry) skip
+identity re-verification; only PGP-anchored sites are fingerprint-checked.
+
+**Anchor pass runs every cycle:** The liveness and identity checks run on every
+loop cycle, even if no watchlist file is loaded, ensuring continuous monitoring
+of the trust anchors.
 
 **Alert sinks:**
 
