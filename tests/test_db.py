@@ -190,3 +190,17 @@ def test_init_schema_adds_columns_to_legacy_leak_hits(tmp_path):
     db = Database(p); db.init_schema()           # must not raise; adds columns
     cols = {r[1] for r in db.conn.execute("PRAGMA table_info(leak_hits)")}
     assert "match_kind" in cols and "match_count" in cols
+
+def test_live_cluster_siblings(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    def add(url, cid, alive):
+        db.upsert_url(url, url.split("//")[1].strip("/"), "crawled", 1, "2026-07-23T00:00:00")
+        db.update_url(url, cluster_id=cid, alive=alive)
+    add("http://anchor.onion/", "c000001", 0)   # the (dead) anchor
+    add("http://sib-alive.onion/", "c000001", 1) # live sibling -> candidate
+    add("http://sib-dead.onion/", "c000001", 0)  # dead sibling -> excluded
+    add("http://other.onion/", "c000002", 1)     # different cluster -> excluded
+    sibs = db.live_cluster_siblings("c000001", "http://anchor.onion/")
+    urls = {s["url"] for s in sibs}
+    assert urls == {"http://sib-alive.onion/"}
+    assert db.live_cluster_siblings(None, "http://anchor.onion/") == []

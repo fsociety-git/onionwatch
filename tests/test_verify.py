@@ -68,3 +68,14 @@ def test_pgp_matches_false_when_page_has_no_fingerprint():
 def test_pgp_matches_false_when_fingerprint_differs():
     page = "key FFFF EEEE DDDD CCCC BBBB  AAAA 3333 2222 1111 0000"
     assert pgp_matches("http://aaaaaaaaaaaaaaaa.onion/", page, VERIFIED) is False
+
+
+from dwcollector.verify import is_pgp_anchor
+
+
+def test_is_pgp_anchor():
+    verified = {"pgp": {"aaaaaaaaaaaaaaaa.onion": "AAAA BBBB"}, "verified_onions": []}
+    assert is_pgp_anchor({"url": "http://aaaaaaaaaaaaaaaa.onion/"}, verified) is True
+    assert is_pgp_anchor({"url": "http://bbbbbbbbbbbbbbbb.onion/"}, verified) is False
+    assert is_pgp_anchor({"url": "http://aaaaaaaaaaaaaaaa.onion/"}, {"pgp": {}}) is False
+    assert is_pgp_anchor({"url": "http://aaaaaaaaaaaaaaaa.onion/"}, {}) is False

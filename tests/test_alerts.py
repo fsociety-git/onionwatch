@@ -198,3 +198,90 @@ def test_title_identifier_unchanged():
 def test_body_pii_does_not_leak_raw_but_shows_masked():
     b = _body(_pii_finding(), "opened")
     assert "1111" in b and "•" in b
+
+
+from dwcollector.alerts import reconcile_dead_originals, _candidate_note
+
+
+def _dead_anchor_with_sibling(db, alive_sibling: bool):
+    a = "http://anchor.onion/"
+    db.upsert_url(a, "anchor.onion", "crawled", 1, "2026-07-23T00:00:00")
+    db.update_url(a, is_canonical=1, trust="verified", cluster_id="c1", alive=0)
+    if alive_sibling:
+        s = "http://sib.onion/"
+        db.upsert_url(s, "sib.onion", "crawled", 1, "2026-07-23T00:00:00")
+        db.update_url(s, cluster_id="c1", alive=1)
+    return a
+
+
+def test_candidate_note_lists_live_siblings(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    _dead_anchor_with_sibling(db, alive_sibling=True)
+    note = _candidate_note(db, db.get_url("http://anchor.onion/"))
+    assert "verify before trusting" in note and "http://sib.onion/" in note
+
+
+def test_candidate_note_no_sibling(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    _dead_anchor_with_sibling(db, alive_sibling=False)
+    note = _candidate_note(db, db.get_url("http://anchor.onion/"))
+    assert "no live successor" in note
+
+
+def test_reconcile_dead_original_carries_candidates(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    cfg = _cfg(tmp_path)   # helper already in test_alerts.py
+    _dead_anchor_with_sibling(db, alive_sibling=True)
+    reconcile_dead_originals(db, cfg, "2026-07-23T00:00:00",
+                             emit_fn=lambda db, cfg, f, ev, now: {"e": ev})
+    f = db.get_finding("dead:http://anchor.onion/")
+    assert f["status"] == "open"
+    assert "http://sib.onion/" in (f["context_snippet"] or "")
+
+
+from dwcollector.alerts import reconcile_anchor_identity
+
+
+def _anchor_row(db, url="http://aaaaaaaaaaaaaaaa.onion/", host="aaaaaaaaaaaaaaaa.onion"):
+    db.upsert_url(url, host, "crawled", 1, "2026-07-23T00:00:00")
+    db.update_url(url, is_canonical=1, trust="verified", cluster_id="c1", alive=1)
+    return url
+
+
+def test_reconcile_anchor_identity_lifecycle(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    cfg = _cfg(tmp_path)
+    u = _anchor_row(db)
+    ef = lambda db, cfg, f, ev, now: (ev, f["severity"], f["dedup_key"])
+    key = f"identity:{u}"
+
+    # fail -> open HIGH
+    a1 = reconcile_anchor_identity(db, cfg, {u}, {u}, "2026-07-23T01:00:00", emit_fn=ef)
+    assert len(a1) == 1 and a1[0] == ("opened", "high", key)
+    assert db.get_finding(key)["status"] == "open"
+
+    # still failing (checked+failed) -> silent
+    assert reconcile_anchor_identity(db, cfg, {u}, {u}, "2026-07-23T02:00:00", emit_fn=ef) == []
+
+    # dead / unchecked this run (not in identity_checked) -> stays open (coverage gate)
+    assert reconcile_anchor_identity(db, cfg, set(), set(), "2026-07-23T03:00:00", emit_fn=ef) == []
+    assert db.get_finding(key)["status"] == "open"
+
+    # checked and passed -> resolve
+    a4 = reconcile_anchor_identity(db, cfg, {u}, set(), "2026-07-23T04:00:00", emit_fn=ef)
+    assert len(a4) == 1 and a4[0][0] == "resolved"
+    assert db.get_finding(key)["status"] == "resolved"
+
+
+def test_anchor_identity_title_and_body():
+    f = {"kind": "anchor_identity", "host": "aaaaaaaaaaaaaaaa.onion", "url": "http://aaaaaaaaaaaaaaaa.onion/",
+         "context_snippet": "verify before trusting — candidate successors: http://sib.onion/"}
+    assert _title(f, "opened") == "Verified anchor aaaaaaaaaaaaaaaa.onion failed identity re-verification"
+    assert "recovered" in _title(f, "resolved")
+    assert "http://sib.onion/" in _body(f, "opened")
+
+
+def test_dead_original_body_carries_candidate_note():
+    f = {"kind": "dead_original", "host": "x.onion", "url": "http://x.onion/",
+         "context_snippet": "verify before trusting — candidate successors: http://sib.onion/"}
+    assert "http://sib.onion/" in _body(f, "opened")
