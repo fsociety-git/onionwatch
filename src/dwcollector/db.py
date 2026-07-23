@@ -114,14 +114,21 @@ class Database:
             [fields[c] for c in cols] + [url],
         )
         if old:
-            obs = observed_at or _utcnow()
-            for c in material:
-                if fields[c] != old.get(c):
-                    self.conn.execute(
-                        "INSERT INTO url_events "
-                        "(url, host, field, old_value, new_value, observed_at) "
-                        "VALUES (?, ?, ?, ?, ?, ?)",
-                        (url, host, c, _as_text(old.get(c)), _as_text(fields[c]), obs))
+            # History is best-effort (design spec): the state write above is
+            # the priority and must not be broken by a history failure, so
+            # any error recording url_events is swallowed rather than
+            # allowed to block the commit() below.
+            try:
+                obs = observed_at or _utcnow()
+                for c in material:
+                    if fields[c] != old.get(c):
+                        self.conn.execute(
+                            "INSERT INTO url_events "
+                            "(url, host, field, old_value, new_value, observed_at) "
+                            "VALUES (?, ?, ?, ?, ?, ?)",
+                            (url, host, c, _as_text(old.get(c)), _as_text(fields[c]), obs))
+            except Exception:
+                pass
         self.conn.commit()
 
     def get_url(self, url) -> dict | None:

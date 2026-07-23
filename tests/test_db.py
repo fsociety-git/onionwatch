@@ -149,3 +149,14 @@ def test_update_url_ignores_nonmaterial_and_unchanged(tmp_path):
     db.update_url(u, alive=1, observed_at="2026-07-23T03:00:00")
     count = db.conn.execute("SELECT COUNT(*) FROM url_events").fetchone()[0]
     assert count == 1  # only the initial alive NULL->1
+
+def test_update_url_state_write_survives_history_failure(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    u = "http://x.onion/"
+    db.upsert_url(u, "x.onion", "crawled", 1, "2026-07-23T00:00:00")
+    db.update_url(u, alive=1, observed_at="2026-07-23T01:00:00")
+    # Break history recording (e.g. disk/locking issue) and confirm the
+    # material state UPDATE still commits instead of being lost.
+    db.conn.execute("DROP TABLE url_events")
+    db.update_url(u, alive=0, observed_at="2026-07-23T02:00:00")
+    assert db.get_url(u)["alive"] == 0
