@@ -101,7 +101,7 @@ def _run_hunt(cfg, db, args):
 
     async def go():
         async with TorClient(cfg) as client:
-            n = await hunt(db, client, terms, f"hunt-{_now()}", _now())
+            n, _ = await hunt(db, client, terms, f"hunt-{_now()}", _now())
             print("leak hits:", n)
     asyncio.run(go())
 

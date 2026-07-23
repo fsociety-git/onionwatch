@@ -30,16 +30,18 @@ def match_terms(text: str, terms: list[str], ctx: int = 60) -> list[tuple[str, s
             hits.append((term, text[start:end].strip()))
     return hits
 
-async def hunt(db, client, terms: list[str], run_id: str, now: str) -> int:
+async def hunt(db, client, terms: list[str], run_id: str, now: str) -> tuple[int, set[str]]:
     count = 0
+    covered: set[str] = set()
     for row in db.canonical_trusted_urls():
         res = await client.fetch(row["url"])
         if not (res.ok and res.status and res.status < 400):
             continue
+        covered.add(row["url"])
         text = visible_text(res.html)
         for term, ctx in match_terms(text, terms):
             db.record_leak_hit(
                 run_id, row["url"], row["host"], row.get("category"),
                 row.get("trust"), term, ctx, now)
             count += 1
-    return count
+    return count, covered
