@@ -60,7 +60,7 @@ public entry point plus small, independently-testable helpers.
 class Match:
     kind: str          # 'literal' | 'regex' | 'fuzzy' | 'encoded' | 'credential' | 'pii'
     key: str           # underlying identifier (prefix stripped) OR 'pii:<detector>'
-    context: str       # evidence snippet (original text, bounded by ctx)
+    context: str       # evidence snippet (bounded by ctx; masked for pii/credential)
     count: int = 1     # >1 only for aggregated PII
     masked_sample: str | None = None   # PII only; masked, never raw
 
@@ -84,8 +84,10 @@ Prefix grammar (extends the existing `re:`):
 
 **Fuzzy (`fuzzy:<identifier>`).** Normalize *both* the identifier and the page
 text through one defang pass, then substring-match the normalized identifier in
-the normalized text. The evidence snippet is taken from the *original* text at
-the matched span (so analysts see what was really on the page). Normalizations
+the normalized text. The evidence snippet is taken from the **normalized
+(defanged) text** around the match — obfuscation removed — which is clear,
+faithful evidence without fragile index-mapping back through length-changing
+normalization. Normalizations
 (`normalize_defang(s)`):
 - `[.]`, `(.)`, `(dot)`, ` dot ` → `.`
 - `[@]`, `(at)`, ` at ` → `@`
@@ -143,9 +145,11 @@ with `kind='pii'`, `key='pii:<detector>'`.
   (lifecycle, sink, webhook, dedup) are unchanged, but `_title`/`_body` assume
   the term is a client identifier and would render "Client identifier
   'pii:credit-card' exposed…". So `_title`/`_body` gain a `pii:`-term branch that
-  reads naturally, e.g. **"Credit-card data detected on `<host>` (~N matches)"**.
-  A term without the `pii:` prefix keeps the exact existing wording. This is the
-  only change to the alert engine.
+  reads naturally, e.g. **"Credit-card data detected on `<host>`"**. A term
+  without the `pii:` prefix keeps the exact existing wording. The match count is
+  not threaded onto the finding row — it lives in `leak_hits.match_count` for
+  querying — so the alert title carries no "~N matches". This is the only change
+  to the alert engine.
 
 `hunt()` change: replace the `match_terms(...)` call with `find_matches(text,
 terms, cfg.pii_detectors, ctx)`, and record each `Match` via `record_leak_hit`
