@@ -49,7 +49,8 @@ CREATE TABLE IF NOT EXISTS crawl_runs (
 CREATE TABLE IF NOT EXISTS leak_hits (
     hit_id INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id TEXT, url TEXT, host TEXT, category TEXT, trust TEXT,
-    term TEXT, context_snippet TEXT, matched_at TEXT
+    term TEXT, context_snippet TEXT, matched_at TEXT,
+    match_kind TEXT DEFAULT 'literal', match_count INTEGER DEFAULT 1
 );
 CREATE TABLE IF NOT EXISTS url_events (
     event_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -86,6 +87,15 @@ class Database:
 
     def init_schema(self) -> None:
         self.conn.executescript(SCHEMA)
+        # Idempotent migration for DBs created before match_kind/match_count.
+        for ddl in (
+            "ALTER TABLE leak_hits ADD COLUMN match_kind TEXT DEFAULT 'literal'",
+            "ALTER TABLE leak_hits ADD COLUMN match_count INTEGER DEFAULT 1",
+        ):
+            try:
+                self.conn.execute(ddl)
+            except sqlite3.OperationalError:
+                pass  # column already present
         self.conn.commit()
 
     def upsert_url(self, url, host, source, depth, first_seen) -> None:
@@ -192,11 +202,14 @@ class Database:
         self.conn.commit()
 
     def record_leak_hit(self, run_id, url, host, category, trust,
-                        term, context_snippet, matched_at) -> None:
+                        term, context_snippet, matched_at,
+                        match_kind="literal", match_count=1) -> None:
         self.conn.execute(
             "INSERT INTO leak_hits (run_id, url, host, category, trust, term, "
-            "context_snippet, matched_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (run_id, url, host, category, trust, term, context_snippet, matched_at))
+            "context_snippet, matched_at, match_kind, match_count) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (run_id, url, host, category, trust, term, context_snippet, matched_at,
+             match_kind, match_count))
         self.conn.commit()
 
     def canonical_trusted_urls(self) -> list[dict]:

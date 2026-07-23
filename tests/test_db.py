@@ -160,3 +160,33 @@ def test_update_url_state_write_survives_history_failure(tmp_path):
     db.conn.execute("DROP TABLE url_events")
     db.update_url(u, alive=0, observed_at="2026-07-23T02:00:00")
     assert db.get_url(u)["alive"] == 0
+
+def test_record_leak_hit_stores_match_kind_and_count(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    db.record_leak_hit("r1", "http://x.onion/", "x.onion", "leak-site", "verified",
+                       "pii:credit-card", "•••• •••• •••• 1111", "2026-07-23T00:00:00",
+                       match_kind="pii", match_count=7)
+    row = db.leak_hits_for_run("r1")[0]
+    assert row["match_kind"] == "pii" and row["match_count"] == 7
+
+
+def test_record_leak_hit_defaults(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    db.record_leak_hit("r1", "http://x.onion/", "x.onion", "leak-site", "verified",
+                       "acme.com", "…acme.com…", "2026-07-23T00:00:00")
+    row = db.leak_hits_for_run("r1")[0]
+    assert row["match_kind"] == "literal" and row["match_count"] == 1
+
+
+def test_init_schema_adds_columns_to_legacy_leak_hits(tmp_path):
+    import sqlite3
+    p = str(tmp_path / "legacy.db")
+    # simulate a pre-Task-7 leak_hits with no match_kind/match_count
+    c = sqlite3.connect(p)
+    c.execute("CREATE TABLE leak_hits (hit_id INTEGER PRIMARY KEY AUTOINCREMENT, "
+              "run_id TEXT, url TEXT, host TEXT, category TEXT, trust TEXT, "
+              "term TEXT, context_snippet TEXT, matched_at TEXT)")
+    c.commit(); c.close()
+    db = Database(p); db.init_schema()           # must not raise; adds columns
+    cols = {r[1] for r in db.conn.execute("PRAGMA table_info(leak_hits)")}
+    assert "match_kind" in cols and "match_count" in cols
