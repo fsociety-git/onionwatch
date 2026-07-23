@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from dwcollector.cli import build_parser, run_cycle, supervisor_loop, _run_alerts
 from dwcollector.config import Config, load_config
 from dwcollector.db import Database
+from dwcollector.hunt import HuntOutcome
 from dwcollector.tor_client import FetchResult
 
 
@@ -227,6 +228,51 @@ def test_run_cycle_reverifies_anchor_identity(tmp_path, monkeypatch):
     fs = db.list_findings("open")
     assert any(f["kind"] == "anchor_identity" and f["severity"] == "high" for f in fs)
     assert res["alerts"] >= 1
+
+
+# --- regression: `hunt --terms` (manual CLI path) must pass `verified` into
+# hunt() so the PGP-identity safety cutout (SAFETY CUTOUT in hunt.py) applies
+# on this path too, not just inside run_cycle's supervisor loop. ---
+
+def test_run_hunt_passes_verified_sources_to_hunt(tmp_path, monkeypatch):
+    import dwcollector.cli as cli_mod
+
+    known_verified = {
+        "pgp": {"aaaaaaaaaaaaaaaa.onion": "AAAA BBBB"},
+        "verified_onions": [],
+        "directories": [],
+    }
+    monkeypatch.setattr(cli_mod, "load_verified_sources", lambda path: known_verified)
+
+    class _StubTorClient:
+        def __init__(self, cfg): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def fetch(self, url):
+            raise AssertionError("fetch should not be called; hunt() is stubbed")
+
+    monkeypatch.setattr(cli_mod, "TorClient", _StubTorClient)
+
+    calls = []
+
+    async def fake_hunt(db, client, terms, run_id, now, detectors=None, verified=None):
+        calls.append(verified)
+        return HuntOutcome(0, set(), set(), set())
+
+    monkeypatch.setattr(cli_mod, "hunt", fake_hunt)
+
+    terms_path = tmp_path / "terms.txt"
+    terms_path.write_text("acme.com\n")
+
+    db = Database(str(tmp_path / "t.db"))
+    db.init_schema()
+    cfg = load_config("config.toml")
+    args = SimpleNamespace(terms=str(terms_path))
+
+    cli_mod._run_hunt(cfg, db, args)
+
+    assert len(calls) == 1
+    assert calls[0] == known_verified
 
 
 def test_alerts_command_lists_findings(tmp_path, capsys):

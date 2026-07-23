@@ -103,11 +103,12 @@ def _run_cluster(cfg, db):
 
 def _run_hunt(cfg, db, args):
     terms = load_terms(args.terms)
+    verified = load_verified_sources("verified_sources.toml")
 
     async def go():
         async with TorClient(cfg) as client:
             outcome = await hunt(db, client, terms, f"hunt-{_now()}", _now(),
-                                 detectors=cfg.pii_detectors)
+                                 detectors=cfg.pii_detectors, verified=verified)
             print("leak hits:", outcome.hit_count)
     asyncio.run(go())
 
