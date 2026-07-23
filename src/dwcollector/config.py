@@ -23,6 +23,7 @@ class Config:
     alerts_path: str = "data/alerts.jsonl"
     alert_webhook: str = ""          # empty = webhook disabled
     pii_detectors: list[str] = field(default_factory=list)
+    max_seeds_per_source: int = 200
 
 def _read_toml(path: str) -> dict:
     with open(path, "rb") as fh:
@@ -63,3 +64,24 @@ def load_verified_sources(path: str = "verified_sources.toml") -> dict:
     data["verified_onions"] = [str(h).lower() for h in data["verified_onions"]]
     data["pgp"] = {str(h).lower(): fp for h, fp in data["pgp"].items()}
     return data
+
+def load_sources(path: str = "sources.toml") -> list[dict]:
+    try:
+        data = _read_toml(path)
+    except FileNotFoundError:
+        return []
+    valid: list[dict] = []
+    for i, s in enumerate(data.get("source", [])):
+        name, typ = s.get("name"), s.get("type")
+        ok = bool(name) and typ in ("index", "search")
+        if ok and typ == "index":
+            ok = bool(s.get("url"))
+        if ok and typ == "search":
+            tmpl = s.get("url_template") or ""
+            ok = "{query}" in tmpl and bool(s.get("queries"))
+        if ok:
+            valid.append(s)
+        else:
+            print(f"sources: skipping malformed source entry #{i} "
+                  f"({name or '?'})", file=sys.stderr)
+    return valid

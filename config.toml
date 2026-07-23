@@ -21,3 +21,6 @@ alert_webhook   = ""            # optional outbound POST target; "" disables
 # structured-PII shape detectors to run during hunts (opt-in; empty = off).
 # available: credit-card, iban, us-ssn
 pii_detectors = []
+
+# max onion seeds to take from each configured seed source per cycle
+max_seeds_per_source = 200
