@@ -209,3 +209,12 @@ def match_term(text: str, term: str, ctx: int = 60) -> list[Match]:
     rx = re.compile(re.escape(term), re.IGNORECASE)
     return [Match("literal", term, _snippet(text, m.start(), m.end(), ctx))
             for m in rx.finditer(text)]
+
+
+def find_matches(text: str, terms: list[str], detectors: list[str],
+                 ctx: int = 60) -> list[Match]:
+    out: list[Match] = []
+    for term in terms:
+        out.extend(match_term(text, term, ctx))
+    out.extend(run_detectors(text, detectors))
+    return out

@@ -172,3 +172,22 @@ def test_match_term_empty_re_pattern():
 
 def test_match_term_empty_term():
     assert match_term("anything at all", "") == []
+
+
+from dwcollector.matching import find_matches
+
+
+def test_find_matches_mixes_terms_and_detectors():
+    text = "acme.com leaked; card 4111111111111111 too"
+    ms = find_matches(text, ["acme.com"], ["credit-card"])
+    kinds = {m.kind for m in ms}
+    keys = {m.key for m in ms}
+    assert "literal" in kinds and "pii" in kinds
+    assert "acme.com" in keys and "pii:credit-card" in keys
+
+
+def test_find_matches_literal_and_fuzzy_same_identifier_share_key():
+    text = "here acme.com and also acme[.]com appear"
+    ms = find_matches(text, ["acme.com", "fuzzy:acme.com"], [])
+    # both techniques resolve to the same underlying identifier key
+    assert {m.key for m in ms} == {"acme.com"}
