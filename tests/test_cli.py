@@ -140,7 +140,9 @@ def test_run_cycle_isolates_cluster_exception(tmp_path, monkeypatch):
     assert "cluster failed" in result["error"]
 
 
-def test_run_cycle_hunts_and_alerts(tmp_path):
+def test_run_cycle_hunts_and_alerts(tmp_path, monkeypatch):
+    import dwcollector.cli as cli_mod
+
     db = Database(str(tmp_path / "t.db")); db.init_schema()
     # a verified canonical site to hunt
     u = "http://good.onion/"
@@ -148,6 +150,18 @@ def test_run_cycle_hunts_and_alerts(tmp_path):
     db.update_url(u, is_canonical=1, trust="verified", category="leak-site", alive=1)
     wl = tmp_path / "wl.txt"; wl.write_text("acme.com\n")
     cfg = Config(watchlist_terms=str(wl), alerts_path=str(tmp_path / "a.jsonl"))
+
+    # run_cycle's cluster stage hardcodes a load of "verified_sources.toml" from
+    # the cwd before cluster_fn ever runs. That file is gitignored/untracked, so
+    # on a clean checkout it's absent and load_verified_sources would raise,
+    # making the whole cycle fail before the hunt stage we're testing here.
+    # cluster_fn is stubbed and never consumes the returned value, so stubbing
+    # load_verified_sources with the same empty-but-valid shape is safe and
+    # makes this test hermetic (independent of any local operator config file).
+    monkeypatch.setattr(
+        cli_mod, "load_verified_sources",
+        lambda path: {"verified_onions": [], "pgp": {}, "directories": []},
+    )
 
     html = "<html><body>dump has acme.com inside</body></html>"
     res = run_cycle(
@@ -162,10 +176,18 @@ def test_run_cycle_hunts_and_alerts(tmp_path):
     assert any(f["kind"] == "leak" and f["severity"] == "critical" for f in fs)
 
 
-def test_run_cycle_skips_hunt_without_watchlist(tmp_path):
+def test_run_cycle_skips_hunt_without_watchlist(tmp_path, monkeypatch):
+    import dwcollector.cli as cli_mod
+
     db = Database(str(tmp_path / "t.db")); db.init_schema()
     cfg = Config(watchlist_terms=str(tmp_path / "missing.txt"),
                  alerts_path=str(tmp_path / "a.jsonl"))
+    # See comment in test_run_cycle_hunts_and_alerts: stub load_verified_sources
+    # so this test doesn't depend on a local, gitignored verified_sources.toml.
+    monkeypatch.setattr(
+        cli_mod, "load_verified_sources",
+        lambda path: {"verified_onions": [], "pgp": {}, "directories": []},
+    )
     res = run_cycle(
         cfg, db, seeds_path=str(tmp_path / "seeds.txt"),
         crawl_fn=lambda *a, **k: SimpleNamespace(discovered=0, alive=0, stop_reason="ok"),
