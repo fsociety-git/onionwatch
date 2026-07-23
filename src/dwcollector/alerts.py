@@ -4,6 +4,9 @@ import os
 import sys
 
 
+LEAK_SEVERITY = "critical"
+
+
 def _post_webhook(cfg, payload) -> None:
     import httpx
     with httpx.Client(timeout=10.0) as c:
@@ -71,3 +74,30 @@ def emit(db, cfg, finding: dict, event: str, now: str, post_fn=_post_webhook) ->
         except Exception:  # noqa: BLE001 - broken stderr must not crash loop
             pass
     return payload
+
+
+def reconcile_leaks(db, cfg, run_id, covered_urls, now, emit_fn=emit) -> list[dict]:
+    alerts = []
+    seen_keys = set()
+    for h in db.leak_hits_for_run(run_id):
+        key = f"leak:{h['url']}|{h['term']}"
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        existing = db.get_finding(key)
+        if existing is None:
+            db.open_finding("leak", key, h["url"], h["host"], h["term"],
+                            LEAK_SEVERITY, h.get("context_snippet"), now)
+            alerts.append(emit_fn(db, cfg, db.get_finding(key), "opened", now))
+        elif existing["status"] == "resolved":
+            db.reopen_finding(key, now, h.get("context_snippet"))
+            alerts.append(emit_fn(db, cfg, db.get_finding(key), "opened", now))
+        else:
+            db.touch_finding(key, now)
+    for f in db.open_findings("leak"):
+        if f["dedup_key"] in seen_keys:
+            continue
+        if f["url"] in covered_urls:
+            db.resolve_finding(f["dedup_key"], now)
+            alerts.append(emit_fn(db, cfg, db.get_finding(f["dedup_key"]), "resolved", now))
+    return alerts
