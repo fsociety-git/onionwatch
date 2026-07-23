@@ -310,3 +310,34 @@ class Database:
         return [dict(r) for r in self.conn.execute(
             "SELECT * FROM urls WHERE cluster_id = ? AND url != ? AND alive = 1",
             (cluster_id, exclude_url))]
+
+    def set_disposition(self, finding_id, disposition, note, actor, now) -> None:
+        self.conn.execute(
+            "UPDATE findings SET disposition = ?, disposition_actor = ?, "
+            "disposition_at = ? WHERE finding_id = ?",
+            (disposition, actor, now, finding_id))
+        self.conn.execute(
+            "INSERT INTO disposition_log (finding_id, disposition, note, actor, at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (finding_id, disposition, note, actor, now))
+        self.conn.commit()
+
+    def add_note(self, finding_id, note, actor, now) -> None:
+        row = self.get_finding_by_id(finding_id)
+        if row is None:
+            return
+        self.conn.execute(
+            "INSERT INTO disposition_log (finding_id, disposition, note, actor, at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (finding_id, row.get("disposition"), note, actor, now))
+        self.conn.commit()
+
+    def triage_queue(self) -> list[dict]:
+        return [dict(r) for r in self.conn.execute(
+            "SELECT * FROM findings WHERE status = 'open' AND disposition = 'new' "
+            "ORDER BY CASE severity WHEN 'critical' THEN 0 ELSE 1 END, last_seen DESC")]
+
+    def disposition_history(self, finding_id) -> list[dict]:
+        return [dict(r) for r in self.conn.execute(
+            "SELECT * FROM disposition_log WHERE finding_id = ? ORDER BY log_id",
+            (finding_id,))]
