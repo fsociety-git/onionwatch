@@ -121,3 +121,31 @@ def test_leak_hits_for_run(tmp_path):
                        "verified", "acme.com", "snippet", "2026-07-23T00:00:00")
     rows = db.leak_hits_for_run("run1")
     assert len(rows) == 1 and rows[0]["url"] == "http://x.onion/"
+
+def test_update_url_records_material_change_events(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    u = "http://x.onion/"
+    db.upsert_url(u, "x.onion", "crawled", 1, "2026-07-23T00:00:00")
+    # first set alive=1 (from NULL) -> one event
+    db.update_url(u, alive=1, observed_at="2026-07-23T01:00:00")
+    # change alive 1->0 and trust None->verified -> two events
+    db.update_url(u, alive=0, trust="verified", observed_at="2026-07-23T02:00:00")
+    evs = [dict(r) for r in db.conn.execute(
+        "SELECT field, old_value, new_value, observed_at FROM url_events ORDER BY event_id")]
+    fields = [(e["field"], e["old_value"], e["new_value"]) for e in evs]
+    assert ("alive", None, "1") in fields
+    assert ("alive", "1", "0") in fields
+    assert ("trust", None, "verified") in fields
+    assert evs[-1]["observed_at"] == "2026-07-23T02:00:00"
+
+def test_update_url_ignores_nonmaterial_and_unchanged(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    u = "http://x.onion/"
+    db.upsert_url(u, "x.onion", "crawled", 1, "2026-07-23T00:00:00")
+    db.update_url(u, alive=1, observed_at="2026-07-23T01:00:00")
+    # non-material field change (title) -> no event
+    db.update_url(u, title="New Title", observed_at="2026-07-23T02:00:00")
+    # unchanged material (alive stays 1) -> no event
+    db.update_url(u, alive=1, observed_at="2026-07-23T03:00:00")
+    count = db.conn.execute("SELECT COUNT(*) FROM url_events").fetchone()[0]
+    assert count == 1  # only the initial alive NULL->1

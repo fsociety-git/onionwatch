@@ -13,6 +13,15 @@ _UPDATABLE = {
     "pgp_fingerprint", "inbound_links",
 }
 
+_MATERIAL = (
+    "alive", "http_status", "content_simhash",
+    "category", "trust", "is_canonical", "clone_of",
+)
+
+
+def _as_text(v):
+    return None if v is None else str(v)
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS urls (
     url TEXT PRIMARY KEY,
@@ -87,15 +96,32 @@ class Database:
         )
         self.conn.commit()
 
-    def update_url(self, url, **fields) -> None:
+    def update_url(self, url, observed_at=None, **fields) -> None:
         cols = [k for k in fields if k in _UPDATABLE]
         if not cols:
             return
+        material = [c for c in cols if c in _MATERIAL]
+        old = {}
+        host = None
+        if material:
+            row = self.get_url(url)
+            if row is not None:
+                old = {c: row.get(c) for c in material}
+                host = row.get("host")
         assignments = ", ".join(f"{c} = ?" for c in cols)
         self.conn.execute(
             f"UPDATE urls SET {assignments} WHERE url = ?",
             [fields[c] for c in cols] + [url],
         )
+        if old:
+            obs = observed_at or _utcnow()
+            for c in material:
+                if fields[c] != old.get(c):
+                    self.conn.execute(
+                        "INSERT INTO url_events "
+                        "(url, host, field, old_value, new_value, observed_at) "
+                        "VALUES (?, ?, ?, ?, ?, ?)",
+                        (url, host, c, _as_text(old.get(c)), _as_text(fields[c]), obs))
         self.conn.commit()
 
     def get_url(self, url) -> dict | None:
