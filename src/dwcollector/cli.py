@@ -2,6 +2,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import csv
+import inspect
 import json
 import os
 import sys
@@ -16,6 +17,7 @@ from .probe import reprobe_all
 from .categorize import categorize
 from .cluster import run_clustering
 from .hunt import hunt, load_terms
+from .alerts import reconcile_leaks, reconcile_dead_originals
 
 
 def _now() -> str:
@@ -135,8 +137,10 @@ def _run_stats(db):
     print("by_trust:", by_trust)
 
 
-def run_cycle(cfg, db, seeds_path: str = "seeds.txt") -> dict:
-    """Run one crawl+cluster cycle for the supervisor loop.
+def run_cycle(cfg, db, seeds_path: str = "seeds.txt",
+              crawl_fn=None, cluster_fn=None,
+              client_factory=None) -> dict:
+    """Run one crawl+cluster+hunt cycle for the supervisor loop.
 
     Deliberately reads `seeds_path` fresh every cycle rather than honoring
     a "resume" toggle: `db.upsert_url`/`db.enqueue` are INSERT-OR-IGNORE, so
@@ -149,16 +153,34 @@ def run_cycle(cfg, db, seeds_path: str = "seeds.txt") -> dict:
 
     Never raises: any failure (Tor down, bad config file, etc.) is caught
     and reported in the returned dict so a 24/7 supervisor loop can log it
-    and move on to the next cycle instead of dying.
+    and move on to the next cycle instead of dying. `crawl_fn`, `cluster_fn`,
+    and `client_factory` are injectable for tests; production leaves them at
+    the real implementations (`crawl`, `run_clustering`, `TorClient`).
+
+    `crawl_fn`/`cluster_fn` default to `None` (resolved to the module-level
+    `crawl`/`run_clustering` *inside* the function body, not as bound default
+    values) so that `monkeypatch.setattr(cli_mod, "crawl", ...)` -- used by
+    the existing per-stage isolation tests -- keeps working: a default bound
+    at `def` time would freeze in the pre-monkeypatch function object.
     """
+    if crawl_fn is None:
+        crawl_fn = crawl
+    if cluster_fn is None:
+        cluster_fn = run_clustering
+    if client_factory is None:
+        client_factory = TorClient
     result: dict = {"ok": True, "started_at": _now()}
+
     try:
         seeds = _read_seeds(seeds_path)
 
         async def go():
-            async with TorClient(cfg) as client:
-                return await crawl(cfg, db, client, seeds,
-                                    f"run-{_now()}", _now())
+            async with client_factory(cfg) as client:
+                out = crawl_fn(cfg, db, client, seeds,
+                                f"run-{_now()}", _now())
+                if inspect.isawaitable(out):
+                    out = await out
+                return out
 
         stats = asyncio.run(go())
         result["crawl"] = {
@@ -173,10 +195,32 @@ def run_cycle(cfg, db, seeds_path: str = "seeds.txt") -> dict:
 
     try:
         verified = load_verified_sources("verified_sources.toml")
-        result["clusters"] = run_clustering(db, verified, cfg.simhash_distance)
+        result["clusters"] = cluster_fn(db, verified, cfg.simhash_distance)
     except Exception as exc:  # noqa: BLE001 - isolate this cycle's failure
         result["ok"] = False
         result["error"] = f"cluster failed: {exc!r}"
+
+    try:
+        terms = []
+        if os.path.exists(cfg.watchlist_terms):
+            terms = load_terms(cfg.watchlist_terms)
+        if not terms:
+            result["alerts"] = 0
+            result["hunt_skipped"] = "no watchlist terms"
+        else:
+            run_id = f"run-{_now()}"
+
+            async def go_hunt():
+                async with client_factory(cfg) as client:
+                    return await hunt(db, client, terms, run_id, _now())
+
+            _, covered = asyncio.run(go_hunt())
+            emitted = reconcile_leaks(db, cfg, run_id, covered, _now())
+            emitted += reconcile_dead_originals(db, cfg, _now())
+            result["alerts"] = len(emitted)
+    except Exception as exc:  # noqa: BLE001 - isolate this cycle's failure
+        result["ok"] = False
+        result["error"] = f"hunt/alert failed: {exc!r}"
 
     return result
 

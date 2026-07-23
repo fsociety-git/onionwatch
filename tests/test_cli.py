@@ -1,6 +1,18 @@
+from types import SimpleNamespace
+
 from dwcollector.cli import build_parser, run_cycle, supervisor_loop
-from dwcollector.config import load_config
+from dwcollector.config import Config, load_config
 from dwcollector.db import Database
+from dwcollector.tor_client import FetchResult
+
+
+class _StubClient:
+    """Async-context client whose fetch always returns the given html OK."""
+    def __init__(self, html): self.html = html
+    async def __aenter__(self): return self
+    async def __aexit__(self, *a): return False
+    async def fetch(self, url):
+        return FetchResult(url, 200, self.html, 10, True)
 
 
 def test_parser_has_subcommands():
@@ -126,3 +138,40 @@ def test_run_cycle_isolates_cluster_exception(tmp_path, monkeypatch):
     result = cli_mod.run_cycle(cfg, db, seeds_path=str(tmp_path / "nonexistent_seeds.txt"))
     assert result["ok"] is False
     assert "cluster failed" in result["error"]
+
+
+def test_run_cycle_hunts_and_alerts(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    # a verified canonical site to hunt
+    u = "http://good.onion/"
+    db.upsert_url(u, "good.onion", "crawled", 1, "2026-07-23T00:00:00")
+    db.update_url(u, is_canonical=1, trust="verified", category="leak-site", alive=1)
+    wl = tmp_path / "wl.txt"; wl.write_text("acme.com\n")
+    cfg = Config(watchlist_terms=str(wl), alerts_path=str(tmp_path / "a.jsonl"))
+
+    html = "<html><body>dump has acme.com inside</body></html>"
+    res = run_cycle(
+        cfg, db, seeds_path=str(tmp_path / "seeds.txt"),
+        crawl_fn=lambda *a, **k: SimpleNamespace(discovered=0, alive=1, stop_reason="ok"),
+        cluster_fn=lambda *a, **k: 0,
+        client_factory=lambda cfg: _StubClient(html),
+    )
+    assert res["ok"] is True
+    assert res["alerts"] == 1
+    fs = db.list_findings("open")
+    assert any(f["kind"] == "leak" and f["severity"] == "critical" for f in fs)
+
+
+def test_run_cycle_skips_hunt_without_watchlist(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    cfg = Config(watchlist_terms=str(tmp_path / "missing.txt"),
+                 alerts_path=str(tmp_path / "a.jsonl"))
+    res = run_cycle(
+        cfg, db, seeds_path=str(tmp_path / "seeds.txt"),
+        crawl_fn=lambda *a, **k: SimpleNamespace(discovered=0, alive=0, stop_reason="ok"),
+        cluster_fn=lambda *a, **k: 0,
+        client_factory=lambda cfg: _StubClient(""),
+    )
+    assert res["ok"] is True
+    assert res.get("alerts", 0) == 0
+    assert "hunt_skipped" in res
