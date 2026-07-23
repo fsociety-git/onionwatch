@@ -14,17 +14,20 @@ short context.
     python3.12 -m venv .venv
     .venv/bin/pip install -r requirements.txt && .venv/bin/pip install -e .
 
-Before running, copy the two example config files and edit them (both are
-gitignored — they hold your own seed list and trust anchors, not sample data):
+Before running, copy the example config files and edit them (all are
+gitignored — they hold your own seed list, trust anchors, and watchlist):
 
     cp seeds.txt.example seeds.txt
     cp verified_sources.toml.example verified_sources.toml
+    cp terms.txt.example terms.txt
 
 - `seeds.txt` — one starting `.onion` URL per line; the crawler deep-discovers
   outward from these via link extraction.
 - `verified_sources.toml` — known-good onions, PGP fingerprints and directory
   pages used by `cluster` to tell a legitimate site apart from a clone/phishing
   mirror and assign trust levels.
+- `terms.txt` — client identifiers (email, domain, etc.) to hunt on verified
+  sites; the watchlist file is optional and read every cycle if it exists.
 
 ## Run with Docker (recommended)
 
@@ -43,6 +46,56 @@ cycle. Combined with `restart: unless-stopped`, this gives a self-healing
 continuous crawler on a dedicated VM — it comes back up after a crash, OOM, or
 host reboot and picks up the frontier where it left off. Run it standalone
 (without Docker) via `dwcollector loop`.
+
+### Continuous monitoring and alerts
+
+When a `watchlist_terms` file exists (configured in `config.toml`, default:
+`terms.txt`), every `loop` cycle also hunts for client identifiers across the
+verified/probable trusted sites and reconciles findings into alerts.
+
+**Watchlist format:** one identifier per line; lines starting with `#` are
+ignored. Identifiers default to case-insensitive literal substring match; prefix
+with `re:` for regex patterns. Example:
+
+    acme-corp.com
+    billing@acme-corp.com
+    re:ACME-[A-Z]+-DB
+
+**Alert types:**
+
+- **CRITICAL** (`leak`): A client identifier was found on a verified/probable trusted site,
+  never seen there before. Severity: `critical`.
+- **HIGH** (`dead_original`): A verified/probable trusted site (a clone-detection anchor)
+  went dark / unreachable. Severity: `high`.
+
+Findings have an open/resolved lifecycle. A leak finding resolves when the
+identifier no longer appears on a URL the crawler can reach; a dead-original
+resolves when the site becomes reachable again. **Important:** findings on sites
+that the crawler cannot reach (coverage-gated) stay open rather than
+false-resolving — they're unverified as resolved.
+
+**Alert sinks:**
+
+- **Local log:** alerts are appended to `alerts_path` (configured in
+  `config.toml`, default: `data/alerts.jsonl`) as JSON Lines records. Each
+  record includes the event (opened/resolved), severity, kind, URL, host, term,
+  title, body, created_at, and a dedup key. Webhook delivery status
+  (`delivered` / `delivery_error`) is not written to this file — it's recorded
+  in the internal DB-backed alerts table, surfaced via `dwcollector alerts`.
+- **Webhook:** if `alert_webhook` is configured (a URL), each alert is
+  posted as JSON. Webhook failures do not block the crawler — they are logged
+  and the cycle continues.
+- **stderr:** all alerts are also logged to stderr as `[alert] <SEVERITY>
+  <event> <title>` for immediate visibility.
+
+**Querying alerts:**
+
+    dwcollector alerts --status open          # open findings only
+    dwcollector alerts --status resolved      # resolved findings only
+    dwcollector alerts --status all           # both
+
+Each row shows the finding's status, severity, kind (leak/dead_original), term
+(if applicable), host, and timestamp.
 
 ## Run on host (uses your Tor on 127.0.0.1:9050)
 

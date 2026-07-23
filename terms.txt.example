@@ -1,0 +1,5 @@
+# One identifier per line. Lines starting with # are ignored.
+# Literal substring match, case-insensitive. Prefix with re: for regex.
+acme-corp.com
+billing@acme-corp.com
+re:ACME-[A-Z]+-DB

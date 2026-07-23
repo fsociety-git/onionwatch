@@ -53,8 +53,9 @@ async def test_hunt_records_hits(tmp_path):
     db.upsert_url(u, "good.onion", "crawled", 1, "2026-07-21T00:00:00")
     db.update_url(u, is_canonical=1, trust="verified", category="leak-site")
     html = "<html><body>dump contains admin@acme.com today</body></html>"
-    n = await hunt(db, SiteClient(html), ["admin@acme.com"], "run1", "2026-07-21T00:00:00")
+    n, covered = await hunt(db, SiteClient(html), ["admin@acme.com"], "run1", "2026-07-21T00:00:00")
     assert n == 1
+    assert covered == {u}
     hits = list(db.conn.execute("SELECT term, url FROM leak_hits"))
     assert hits[0][0] == "admin@acme.com"
     assert hits[0][1] == u
@@ -74,7 +75,30 @@ async def test_hunt_skips_dead_site_records_no_hit(tmp_path):
     db.upsert_url(u, "dead.onion", "crawled", 1, "2026-07-21T00:00:00")
     db.update_url(u, is_canonical=1, trust="verified", category="leak-site")
     html = "<html><body>dump contains admin@acme.com today</body></html>"
-    n = await hunt(db, DeadSiteClient(html), ["admin@acme.com"], "run1", "2026-07-21T00:00:00")
+    n, covered = await hunt(db, DeadSiteClient(html), ["admin@acme.com"], "run1", "2026-07-21T00:00:00")
     assert n == 0
+    assert covered == set()
     hits = list(db.conn.execute("SELECT term, url FROM leak_hits"))
     assert hits == []
+
+class FlakyClient:
+    """Returns OK for allowed urls, a failed FetchResult otherwise."""
+    def __init__(self, html, ok_urls):
+        self.html = html; self.ok_urls = ok_urls
+    async def fetch(self, url):
+        if url in self.ok_urls:
+            return FetchResult(url, 200, self.html, 10, True)
+        return FetchResult(url, None, "", 10, False)
+
+@pytest.mark.asyncio
+async def test_hunt_covered_excludes_unreachable(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    good = "http://good.onion/"; bad = "http://bad.onion/"
+    for h in (good, bad):
+        db.upsert_url(h, h.split("//")[1].strip("/"), "crawled", 1, "2026-07-23T00:00:00")
+        db.update_url(h, is_canonical=1, trust="verified", category="leak-site")
+    html = "<html><body>admin@acme.com</body></html>"
+    client = FlakyClient(html, ok_urls={good})
+    n, covered = await hunt(db, client, ["admin@acme.com"], "run1", "2026-07-23T00:00:00")
+    assert covered == {good}          # bad.onion was unreachable -> not covered
+    assert n == 1                      # only good.onion produced a hit

@@ -19,6 +19,9 @@ class Config:
     ahmia_enabled: bool = True
     snippet_chars: int = 500
     simhash_distance: int = 3
+    watchlist_terms: str = "terms.txt"
+    alerts_path: str = "data/alerts.jsonl"
+    alert_webhook: str = ""          # empty = webhook disabled
 
 def _read_toml(path: str) -> dict:
     with open(path, "rb") as fh:

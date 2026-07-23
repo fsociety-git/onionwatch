@@ -1,6 +1,18 @@
-from dwcollector.cli import build_parser, run_cycle, supervisor_loop
-from dwcollector.config import load_config
+from types import SimpleNamespace
+
+from dwcollector.cli import build_parser, run_cycle, supervisor_loop, _run_alerts
+from dwcollector.config import Config, load_config
 from dwcollector.db import Database
+from dwcollector.tor_client import FetchResult
+
+
+class _StubClient:
+    """Async-context client whose fetch always returns the given html OK."""
+    def __init__(self, html): self.html = html
+    async def __aenter__(self): return self
+    async def __aexit__(self, *a): return False
+    async def fetch(self, url):
+        return FetchResult(url, 200, self.html, 10, True)
 
 
 def test_parser_has_subcommands():
@@ -126,3 +138,83 @@ def test_run_cycle_isolates_cluster_exception(tmp_path, monkeypatch):
     result = cli_mod.run_cycle(cfg, db, seeds_path=str(tmp_path / "nonexistent_seeds.txt"))
     assert result["ok"] is False
     assert "cluster failed" in result["error"]
+
+
+def test_run_cycle_hunts_and_alerts(tmp_path, monkeypatch):
+    import dwcollector.cli as cli_mod
+
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    # a verified canonical site to hunt
+    u = "http://good.onion/"
+    db.upsert_url(u, "good.onion", "crawled", 1, "2026-07-23T00:00:00")
+    db.update_url(u, is_canonical=1, trust="verified", category="leak-site", alive=1)
+    wl = tmp_path / "wl.txt"; wl.write_text("acme.com\n")
+    cfg = Config(watchlist_terms=str(wl), alerts_path=str(tmp_path / "a.jsonl"))
+
+    # run_cycle's cluster stage hardcodes a load of "verified_sources.toml" from
+    # the cwd before cluster_fn ever runs. That file is gitignored/untracked, so
+    # on a clean checkout it's absent and load_verified_sources would raise,
+    # making the whole cycle fail before the hunt stage we're testing here.
+    # cluster_fn is stubbed and never consumes the returned value, so stubbing
+    # load_verified_sources with the same empty-but-valid shape is safe and
+    # makes this test hermetic (independent of any local operator config file).
+    monkeypatch.setattr(
+        cli_mod, "load_verified_sources",
+        lambda path: {"verified_onions": [], "pgp": {}, "directories": []},
+    )
+
+    html = "<html><body>dump has acme.com inside</body></html>"
+    res = run_cycle(
+        cfg, db, seeds_path=str(tmp_path / "seeds.txt"),
+        crawl_fn=lambda *a, **k: SimpleNamespace(discovered=0, alive=1, stop_reason="ok"),
+        cluster_fn=lambda *a, **k: 0,
+        client_factory=lambda cfg: _StubClient(html),
+    )
+    assert res["ok"] is True
+    assert res["alerts"] == 1
+    fs = db.list_findings("open")
+    assert any(f["kind"] == "leak" and f["severity"] == "critical" for f in fs)
+
+
+def test_run_cycle_skips_hunt_without_watchlist(tmp_path, monkeypatch):
+    import dwcollector.cli as cli_mod
+
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    cfg = Config(watchlist_terms=str(tmp_path / "missing.txt"),
+                 alerts_path=str(tmp_path / "a.jsonl"))
+    # See comment in test_run_cycle_hunts_and_alerts: stub load_verified_sources
+    # so this test doesn't depend on a local, gitignored verified_sources.toml.
+    monkeypatch.setattr(
+        cli_mod, "load_verified_sources",
+        lambda path: {"verified_onions": [], "pgp": {}, "directories": []},
+    )
+    res = run_cycle(
+        cfg, db, seeds_path=str(tmp_path / "seeds.txt"),
+        crawl_fn=lambda *a, **k: SimpleNamespace(discovered=0, alive=0, stop_reason="ok"),
+        cluster_fn=lambda *a, **k: 0,
+        client_factory=lambda cfg: _StubClient(""),
+    )
+    assert res["ok"] is True
+    assert res.get("alerts", 0) == 0
+    assert "hunt_skipped" in res
+
+
+def test_alerts_command_lists_findings(tmp_path, capsys):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    db.open_finding("leak", "leak:http://x.onion/|acme.com", "http://x.onion/",
+                    "x.onion", "acme.com", "critical", "…", "2026-07-23T00:00:00")
+    db.open_finding("dead_original", "dead:http://y.onion/", "http://y.onion/",
+                    "y.onion", None, "high", None, "2026-07-23T00:00:00")
+    db.resolve_finding("dead:http://y.onion/", "2026-07-23T01:00:00")
+
+    args = build_parser().parse_args(["alerts", "--status", "open"])
+    _run_alerts(db, args)
+    out = capsys.readouterr().out
+    assert "acme.com" in out and "critical" in out
+    assert "y.onion" not in out          # resolved, excluded by --status open
+    assert "total: 1" in out
+
+    args_all = build_parser().parse_args(["alerts", "--status", "all"])
+    _run_alerts(db, args_all)
+    out_all = capsys.readouterr().out
+    assert "total: 2" in out_all
