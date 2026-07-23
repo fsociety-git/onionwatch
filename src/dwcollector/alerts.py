@@ -110,6 +110,14 @@ def reconcile_leaks(db, cfg, run_id, covered_urls, now, emit_fn=emit) -> list[di
     return alerts
 
 
+def _candidate_note(db, row: dict) -> str:
+    sibs = db.live_cluster_siblings(row.get("cluster_id"), row["url"])
+    if sibs:
+        urls = ", ".join(s["url"] for s in sibs)
+        return f"verify before trusting — candidate successors: {urls}"
+    return "verify before trusting — no live successor discovered yet"
+
+
 def reconcile_dead_originals(db, cfg, now, emit_fn=emit) -> list[dict]:
     alerts = []
     dead_keys = set()
@@ -120,10 +128,10 @@ def reconcile_dead_originals(db, cfg, now, emit_fn=emit) -> list[dict]:
             existing = db.get_finding(key)
             if existing is None:
                 db.open_finding("dead_original", key, r["url"], r["host"], None,
-                                DEAD_SEVERITY, None, now)
+                                DEAD_SEVERITY, _candidate_note(db, r), now)
                 alerts.append(emit_fn(db, cfg, db.get_finding(key), "opened", now))
             elif existing["status"] == "resolved":
-                db.reopen_finding(key, now, None)
+                db.reopen_finding(key, now, _candidate_note(db, r))
                 alerts.append(emit_fn(db, cfg, db.get_finding(key), "opened", now))
             else:
                 db.touch_finding(key, now)

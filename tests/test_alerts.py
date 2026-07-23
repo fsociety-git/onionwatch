@@ -198,3 +198,42 @@ def test_title_identifier_unchanged():
 def test_body_pii_does_not_leak_raw_but_shows_masked():
     b = _body(_pii_finding(), "opened")
     assert "1111" in b and "•" in b
+
+
+from dwcollector.alerts import reconcile_dead_originals, _candidate_note
+
+
+def _dead_anchor_with_sibling(db, alive_sibling: bool):
+    a = "http://anchor.onion/"
+    db.upsert_url(a, "anchor.onion", "crawled", 1, "2026-07-23T00:00:00")
+    db.update_url(a, is_canonical=1, trust="verified", cluster_id="c1", alive=0)
+    if alive_sibling:
+        s = "http://sib.onion/"
+        db.upsert_url(s, "sib.onion", "crawled", 1, "2026-07-23T00:00:00")
+        db.update_url(s, cluster_id="c1", alive=1)
+    return a
+
+
+def test_candidate_note_lists_live_siblings(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    _dead_anchor_with_sibling(db, alive_sibling=True)
+    note = _candidate_note(db, db.get_url("http://anchor.onion/"))
+    assert "verify before trusting" in note and "http://sib.onion/" in note
+
+
+def test_candidate_note_no_sibling(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    _dead_anchor_with_sibling(db, alive_sibling=False)
+    note = _candidate_note(db, db.get_url("http://anchor.onion/"))
+    assert "no live successor" in note
+
+
+def test_reconcile_dead_original_carries_candidates(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    cfg = _cfg(tmp_path)   # helper already in test_alerts.py
+    _dead_anchor_with_sibling(db, alive_sibling=True)
+    reconcile_dead_originals(db, cfg, "2026-07-23T00:00:00",
+                             emit_fn=lambda db, cfg, f, ev, now: {"e": ev})
+    f = db.get_finding("dead:http://anchor.onion/")
+    assert f["status"] == "open"
+    assert "http://sib.onion/" in (f["context_snippet"] or "")
