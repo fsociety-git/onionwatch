@@ -75,3 +75,49 @@ def test_canonical_trusted_filter(tmp_path):
         db.update_url(u, is_canonical=canon, trust=trust)
     urls = {r["url"] for r in db.canonical_trusted_urls()}
     assert urls == {"http://good.onion/", "http://ok.onion/"}
+
+def test_finding_lifecycle_methods(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    key = "leak:http://x.onion/|acme.com"
+    assert db.get_finding(key) is None
+    db.open_finding("leak", key, "http://x.onion/", "x.onion", "acme.com",
+                    "critical", "ctx", "2026-07-23T00:00:00")
+    f = db.get_finding(key)
+    assert f["status"] == "open" and f["severity"] == "critical"
+    assert f["term"] == "acme.com" and f["finding_id"] >= 1
+    # idempotent open (INSERT OR IGNORE)
+    db.open_finding("leak", key, "http://x.onion/", "x.onion", "acme.com",
+                    "critical", "ctx2", "2026-07-23T01:00:00")
+    assert db.get_finding(key)["context_snippet"] == "ctx"
+    db.touch_finding(key, "2026-07-23T02:00:00")
+    assert db.get_finding(key)["last_seen"] == "2026-07-23T02:00:00"
+    assert len(db.open_findings("leak")) == 1
+    db.resolve_finding(key, "2026-07-23T03:00:00")
+    assert db.get_finding(key)["status"] == "resolved"
+    assert db.open_findings("leak") == []
+    db.reopen_finding(key, "2026-07-23T04:00:00", "ctx3")
+    assert db.get_finding(key)["status"] == "open"
+    assert db.get_finding(key)["resolved_at"] is None
+    assert db.get_finding(key)["context_snippet"] == "ctx3"
+    assert len(db.list_findings("all")) == 1
+
+def test_record_url_event_and_alert(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    db.record_url_event("http://x.onion/", "x.onion", "alive", "1", "0",
+                        "2026-07-23T00:00:00")
+    ev = list(db.conn.execute("SELECT field, old_value, new_value FROM url_events"))
+    assert ev[0][0] == "alive" and ev[0][1] == "1" and ev[0][2] == "0"
+    aid = db.record_alert(1, "leak:k", "opened", "critical", "t", "b",
+                          "2026-07-23T00:00:00", 1, None)
+    assert aid >= 1
+    row = list(db.conn.execute("SELECT event, delivered FROM alerts"))[0]
+    assert row[0] == "opened" and row[1] == 1
+
+def test_leak_hits_for_run(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    db.record_leak_hit("run1", "http://x.onion/", "x.onion", "leak-site",
+                       "verified", "acme.com", "snippet", "2026-07-23T00:00:00")
+    db.record_leak_hit("run2", "http://y.onion/", "y.onion", "leak-site",
+                       "verified", "acme.com", "snippet", "2026-07-23T00:00:00")
+    rows = db.leak_hits_for_run("run1")
+    assert len(rows) == 1 and rows[0]["url"] == "http://x.onion/"

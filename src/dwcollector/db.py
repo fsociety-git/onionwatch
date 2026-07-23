@@ -1,5 +1,10 @@
 from __future__ import annotations
 import sqlite3
+from datetime import datetime, timezone
+
+
+def _utcnow() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
 
 _UPDATABLE = {
     "alive", "http_status", "title", "response_ms", "last_checked",
@@ -36,6 +41,26 @@ CREATE TABLE IF NOT EXISTS leak_hits (
     hit_id INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id TEXT, url TEXT, host TEXT, category TEXT, trust TEXT,
     term TEXT, context_snippet TEXT, matched_at TEXT
+);
+CREATE TABLE IF NOT EXISTS url_events (
+    event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    url TEXT, host TEXT,
+    field TEXT, old_value TEXT, new_value TEXT,
+    observed_at TEXT
+);
+CREATE TABLE IF NOT EXISTS findings (
+    finding_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT, dedup_key TEXT UNIQUE,
+    url TEXT, host TEXT, term TEXT,
+    status TEXT, severity TEXT,
+    first_seen TEXT, last_seen TEXT, resolved_at TEXT,
+    context_snippet TEXT
+);
+CREATE TABLE IF NOT EXISTS alerts (
+    alert_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    finding_id INTEGER, dedup_key TEXT,
+    event TEXT, severity TEXT, title TEXT, body TEXT,
+    created_at TEXT, delivered INTEGER DEFAULT 0, delivery_error TEXT
 );
 """
 
@@ -144,3 +169,75 @@ class Database:
     def canonical_trusted_urls(self) -> list[dict]:
         return [dict(r) for r in self.conn.execute(
             "SELECT * FROM urls WHERE is_canonical=1 AND trust IN ('verified','probable')")]
+
+    def record_url_event(self, url, host, field, old_value, new_value, observed_at) -> None:
+        self.conn.execute(
+            "INSERT INTO url_events (url, host, field, old_value, new_value, observed_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (url, host, field, old_value, new_value, observed_at))
+        self.conn.commit()
+
+    def get_finding(self, dedup_key) -> dict | None:
+        cur = self.conn.execute("SELECT * FROM findings WHERE dedup_key = ?", (dedup_key,))
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+    def open_finding(self, kind, dedup_key, url, host, term, severity,
+                     context_snippet, now) -> None:
+        self.conn.execute(
+            "INSERT OR IGNORE INTO findings "
+            "(kind, dedup_key, url, host, term, status, severity, first_seen, "
+            " last_seen, context_snippet) "
+            "VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?)",
+            (kind, dedup_key, url, host, term, severity, now, now, context_snippet))
+        self.conn.commit()
+
+    def touch_finding(self, dedup_key, last_seen) -> None:
+        self.conn.execute("UPDATE findings SET last_seen = ? WHERE dedup_key = ?",
+                          (last_seen, dedup_key))
+        self.conn.commit()
+
+    def resolve_finding(self, dedup_key, resolved_at) -> None:
+        self.conn.execute(
+            "UPDATE findings SET status = 'resolved', resolved_at = ? WHERE dedup_key = ?",
+            (resolved_at, dedup_key))
+        self.conn.commit()
+
+    def reopen_finding(self, dedup_key, now, context_snippet) -> None:
+        self.conn.execute(
+            "UPDATE findings SET status = 'open', resolved_at = NULL, "
+            "last_seen = ?, context_snippet = ? WHERE dedup_key = ?",
+            (now, context_snippet, dedup_key))
+        self.conn.commit()
+
+    def open_findings(self, kind=None) -> list[dict]:
+        if kind:
+            cur = self.conn.execute(
+                "SELECT * FROM findings WHERE status = 'open' AND kind = ?", (kind,))
+        else:
+            cur = self.conn.execute("SELECT * FROM findings WHERE status = 'open'")
+        return [dict(r) for r in cur]
+
+    def list_findings(self, status=None) -> list[dict]:
+        if status and status != "all":
+            cur = self.conn.execute(
+                "SELECT * FROM findings WHERE status = ? ORDER BY finding_id DESC",
+                (status,))
+        else:
+            cur = self.conn.execute("SELECT * FROM findings ORDER BY finding_id DESC")
+        return [dict(r) for r in cur]
+
+    def record_alert(self, finding_id, dedup_key, event, severity, title, body,
+                     created_at, delivered, delivery_error) -> int:
+        cur = self.conn.execute(
+            "INSERT INTO alerts (finding_id, dedup_key, event, severity, title, "
+            "body, created_at, delivered, delivery_error) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (finding_id, dedup_key, event, severity, title, body, created_at,
+             delivered, delivery_error))
+        self.conn.commit()
+        return cur.lastrowid
+
+    def leak_hits_for_run(self, run_id) -> list[dict]:
+        return [dict(r) for r in self.conn.execute(
+            "SELECT * FROM leak_hits WHERE run_id = ?", (run_id,))]
