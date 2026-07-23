@@ -51,13 +51,23 @@ def emit(db, cfg, finding: dict, event: str, now: str, post_fn=_post_webhook) ->
         _append_jsonl(cfg.alerts_path, payload)
     except Exception as exc:  # noqa: BLE001 - sink failure must not crash loop
         error = f"jsonl: {exc!r}"
-    print(f"[alert] {severity.upper()} {event} {title}", file=sys.stderr)
+    try:
+        print(f"[alert] {severity.upper()} {event} {title}", file=sys.stderr)
+    except Exception:  # noqa: BLE001 - broken stderr must not crash loop
+        pass
     if cfg.alert_webhook:
         try:
             post_fn(cfg, payload)
             delivered = 1
         except Exception as exc:  # noqa: BLE001 - webhook failure must not crash loop
             error = (error + "; " if error else "") + f"webhook: {exc!r}"
-    db.record_alert(finding.get("finding_id"), finding["dedup_key"], event,
-                    severity, title, body, now, delivered, error)
+    # Durable record is best-effort; emit must never crash the caller's loop.
+    try:
+        db.record_alert(finding.get("finding_id"), finding["dedup_key"], event,
+                        severity, title, body, now, delivered, error)
+    except Exception as exc:  # noqa: BLE001 - db failure must not crash loop
+        try:
+            print(f"[alert] WARNING: failed to persist alert row: {exc!r}", file=sys.stderr)
+        except Exception:  # noqa: BLE001 - broken stderr must not crash loop
+            pass
     return payload

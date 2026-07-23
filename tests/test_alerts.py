@@ -59,3 +59,28 @@ def test_emit_webhook_failure_is_recorded_not_raised(tmp_path):
     row = list(db.conn.execute("SELECT delivered, delivery_error FROM alerts"))[0]
     assert row[0] == 0
     assert "connection refused" in row[1]
+
+
+class _DbDown:
+    """Stub db whose durable-record write always fails."""
+
+    def record_alert(self, *args, **kwargs):
+        raise RuntimeError("db down")
+
+
+def test_emit_does_not_raise_when_record_alert_fails(tmp_path):
+    cfg = _cfg(tmp_path)
+    finding = {
+        "kind": "leak",
+        "dedup_key": "leak:http://x.onion/|acme.com",
+        "url": "http://x.onion/",
+        "host": "x.onion",
+        "term": "acme.com",
+        "severity": "critical",
+        "context_snippet": "…acme.com…",
+        "finding_id": 1,
+    }
+    # must not raise even though the durable record write blows up
+    payload = emit(_DbDown(), cfg, finding, "opened", "2026-07-23T01:00:00")
+    assert isinstance(payload, dict)
+    assert payload["dedup_key"] == finding["dedup_key"]
