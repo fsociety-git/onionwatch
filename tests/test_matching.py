@@ -84,17 +84,34 @@ def test_run_detectors_no_false_positive_without_validation():
     assert run_detectors("order 1234567890123456 shipped", ["credit-card"]) == []
 
 
-def test_run_detectors_finds_space_formatted_iban():
-    text = "wire to iban GB82 WEST 1234 5698 7654 32 today"
+def test_run_detectors_finds_contiguous_iban():
+    # GB82WEST12345698765432 is a valid UK test IBAN (contiguous, no spaces).
+    assert iban_valid("GB82WEST12345698765432")
+    text = "wire to iban GB82WEST12345698765432 today"
     ms = run_detectors(text, ["iban"])
     assert len(ms) == 1
     m = ms[0]
     assert m.key == "pii:iban" and m.kind == "pii"
     assert m.count == 1
-    raw_stripped = "GB82WEST12345698765432"
-    assert raw_stripped not in (m.masked_sample or "")
-    assert raw_stripped not in m.context
+    raw = "GB82WEST12345698765432"
+    assert raw not in (m.masked_sample or "")
+    assert raw not in m.context
     assert (m.masked_sample or "").endswith("5432")  # last-4 retained
+
+
+def test_run_detectors_iban_does_not_swallow_trailing_token():
+    # Regression guard: the IBAN regex must not greedily cross a space into a
+    # following all-caps token (e.g. "SWIFT"). Detection must still fire once
+    # for the contiguous IBAN, and the trailing word must not be absorbed.
+    text = "pay GB82WEST12345698765432 SWIFT WESTGB2L done"
+    ms = run_detectors(text, ["iban"])
+    assert len(ms) == 1
+    m = ms[0]
+    assert m.key == "pii:iban" and m.kind == "pii"
+    assert m.count == 1
+    # masked sample corresponds to the 22-char IBAN only: 18 mask chars + last-4
+    assert m.masked_sample == "•" * 18 + "5432"
+    assert "SWIFT" not in (m.masked_sample or "")
 
 
 def test_run_detectors_aggregates_and_masks_ssns():
