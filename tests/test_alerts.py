@@ -1,7 +1,7 @@
 import json
 from types import SimpleNamespace
 from dwcollector.db import Database
-from dwcollector.alerts import emit, reconcile_leaks
+from dwcollector.alerts import emit, reconcile_leaks, reconcile_dead_originals
 
 
 def _cfg(tmp_path, webhook=""):
@@ -132,3 +132,38 @@ def test_reconcile_leaks_uncovered_url_stays_open(tmp_path):
     a = reconcile_leaks(db, cfg, "r2", set(), "2026-07-23T02:00:00", emit_fn=ef)
     assert a == []
     assert db.get_finding(key)["status"] == "open"
+
+
+def _canonical(db, url, alive):
+    host = url.split("//")[1].strip("/")
+    db.upsert_url(url, host, "crawled", 1, "2026-07-23T00:00:00")
+    db.update_url(url, is_canonical=1, trust="verified", alive=alive)
+
+
+def test_reconcile_dead_original_lifecycle(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    cfg = _cfg(tmp_path)
+    sink = []
+    ef = lambda db, cfg, f, ev, now: sink.append((ev, f["severity"], f["dedup_key"])) or {"e": ev}
+    u = "http://orig.onion/"; key = f"dead:{u}"
+
+    # alive -> no finding
+    _canonical(db, u, alive=1)
+    a0 = reconcile_dead_originals(db, cfg, "2026-07-23T01:00:00", emit_fn=ef)
+    assert a0 == [] and db.get_finding(key) is None
+
+    # went dark -> open HIGH
+    db.update_url(u, alive=0)
+    a1 = reconcile_dead_originals(db, cfg, "2026-07-23T02:00:00", emit_fn=ef)
+    assert len(a1) == 1 and sink[-1] == ("opened", "high", key)
+    assert db.get_finding(key)["status"] == "open"
+
+    # still dark -> silent
+    a2 = reconcile_dead_originals(db, cfg, "2026-07-23T03:00:00", emit_fn=ef)
+    assert a2 == []
+
+    # recovered -> resolve
+    db.update_url(u, alive=1)
+    a3 = reconcile_dead_originals(db, cfg, "2026-07-23T04:00:00", emit_fn=ef)
+    assert len(a3) == 1 and sink[-1][0] == "resolved"
+    assert db.get_finding(key)["status"] == "resolved"

@@ -5,6 +5,7 @@ import sys
 
 
 LEAK_SEVERITY = "critical"
+DEAD_SEVERITY = "high"
 
 
 def _post_webhook(cfg, payload) -> None:
@@ -98,6 +99,30 @@ def reconcile_leaks(db, cfg, run_id, covered_urls, now, emit_fn=emit) -> list[di
         if f["dedup_key"] in seen_keys:
             continue
         if f["url"] in covered_urls:
+            db.resolve_finding(f["dedup_key"], now)
+            alerts.append(emit_fn(db, cfg, db.get_finding(f["dedup_key"]), "resolved", now))
+    return alerts
+
+
+def reconcile_dead_originals(db, cfg, now, emit_fn=emit) -> list[dict]:
+    alerts = []
+    dead_keys = set()
+    for r in db.canonical_trusted_urls():
+        key = f"dead:{r['url']}"
+        if r.get("alive") == 0:
+            dead_keys.add(key)
+            existing = db.get_finding(key)
+            if existing is None:
+                db.open_finding("dead_original", key, r["url"], r["host"], None,
+                                DEAD_SEVERITY, None, now)
+                alerts.append(emit_fn(db, cfg, db.get_finding(key), "opened", now))
+            elif existing["status"] == "resolved":
+                db.reopen_finding(key, now, None)
+                alerts.append(emit_fn(db, cfg, db.get_finding(key), "opened", now))
+            else:
+                db.touch_finding(key, now)
+    for f in db.open_findings("dead_original"):
+        if f["dedup_key"] not in dead_keys:
             db.resolve_finding(f["dedup_key"], now)
             alerts.append(emit_fn(db, cfg, db.get_finding(f["dedup_key"]), "resolved", now))
     return alerts
