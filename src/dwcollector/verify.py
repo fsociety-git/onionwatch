@@ -49,3 +49,6 @@ def pgp_matches(url: str, page_text: str, verified: dict) -> bool:
         return False
     got = pgp_fingerprint_in_page(page_text)
     return got is not None and got == canon_fp(expected)
+
+def is_pgp_anchor(row: dict, verified: dict) -> bool:
+    return onion_host(row["url"]) in verified.get("pgp", {})
