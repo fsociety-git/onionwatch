@@ -164,3 +164,11 @@ def test_match_term_credential_requires_secret():
 
 def test_match_term_empty_prefixed_value_skipped():
     assert match_term("anything", "fuzzy:") == []
+
+
+def test_match_term_empty_re_pattern():
+    assert match_term("anything at all", "re:") == []
+
+
+def test_match_term_empty_term():
+    assert match_term("anything at all", "") == []

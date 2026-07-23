@@ -156,8 +156,13 @@ def _snippet(text: str, start: int, end: int, ctx: int) -> str:
 
 
 def match_term(text: str, term: str, ctx: int = 60) -> list[Match]:
+    if not term:
+        return []
+
     if term.startswith("re:"):
         pattern = term[3:]
+        if not pattern:
+            return []
         try:
             rx = re.compile(pattern, re.IGNORECASE)
         except re.error:
