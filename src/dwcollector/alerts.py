@@ -6,6 +6,7 @@ import sys
 
 LEAK_SEVERITY = "critical"
 DEAD_SEVERITY = "high"
+ANCHOR_IDENTITY_SEVERITY = "high"
 
 
 def _post_webhook(cfg, payload) -> None:
@@ -33,6 +34,10 @@ def _title(finding: dict, event: str) -> str:
         if event == "opened":
             return f"Client identifier '{finding['term']}' exposed on {finding['host']}"
         return f"Exposure of '{finding['term']}' on {finding['host']} resolved"
+    if finding["kind"] == "anchor_identity":
+        if event == "opened":
+            return f"Verified anchor {finding['host']} failed identity re-verification"
+        return f"Anchor {finding['host']} identity re-verification recovered"
     if event == "opened":
         return f"Verified original {finding['host']} went dark"
     return f"Verified original {finding['host']} recovered"
@@ -42,7 +47,12 @@ def _body(finding: dict, event: str) -> str:
     if finding["kind"] == "leak":
         return (f"url={finding['url']} term={finding['term']} "
                 f"snippet={finding.get('context_snippet') or ''}")
-    return f"url={finding['url']} — canonical trusted site liveness changed"
+    reason = ("anchor identity re-verification failed"
+              if finding["kind"] == "anchor_identity"
+              else "canonical trusted site liveness changed")
+    note = finding.get("context_snippet") or ""
+    body = f"url={finding['url']} — {reason}"
+    return f"{body} · {note}" if note else body
 
 
 def emit(db, cfg, finding: dict, event: str, now: str, post_fn=_post_webhook) -> dict:
@@ -137,6 +147,31 @@ def reconcile_dead_originals(db, cfg, now, emit_fn=emit) -> list[dict]:
                 db.touch_finding(key, now)
     for f in db.open_findings("dead_original"):
         if f["dedup_key"] not in dead_keys:
+            db.resolve_finding(f["dedup_key"], now)
+            alerts.append(emit_fn(db, cfg, db.get_finding(f["dedup_key"]), "resolved", now))
+    return alerts
+
+
+def reconcile_anchor_identity(db, cfg, identity_checked, identity_failed, now,
+                              emit_fn=emit) -> list[dict]:
+    alerts = []
+    for url in identity_failed:
+        key = f"identity:{url}"
+        row = db.get_url(url) or {"url": url, "host": None, "cluster_id": None}
+        note = _candidate_note(db, row)
+        existing = db.get_finding(key)
+        if existing is None:
+            db.open_finding("anchor_identity", key, url, row.get("host"), None,
+                            ANCHOR_IDENTITY_SEVERITY, note, now)
+            alerts.append(emit_fn(db, cfg, db.get_finding(key), "opened", now))
+        elif existing["status"] == "resolved":
+            db.reopen_finding(key, now, note)
+            alerts.append(emit_fn(db, cfg, db.get_finding(key), "opened", now))
+        else:
+            db.touch_finding(key, now)
+    recovered = set(identity_checked) - set(identity_failed)
+    for f in db.open_findings("anchor_identity"):
+        if f["url"] in recovered:
             db.resolve_finding(f["dedup_key"], now)
             alerts.append(emit_fn(db, cfg, db.get_finding(f["dedup_key"]), "resolved", now))
     return alerts
