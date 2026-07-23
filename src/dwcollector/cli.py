@@ -17,7 +17,7 @@ from .probe import reprobe_all
 from .categorize import categorize
 from .cluster import run_clustering
 from .hunt import hunt, load_terms
-from .alerts import reconcile_leaks, reconcile_dead_originals
+from .alerts import reconcile_leaks, reconcile_dead_originals, reconcile_anchor_identity
 
 
 def _now() -> str:
@@ -106,8 +106,9 @@ def _run_hunt(cfg, db, args):
 
     async def go():
         async with TorClient(cfg) as client:
-            n, _ = await hunt(db, client, terms, f"hunt-{_now()}", _now(), detectors=cfg.pii_detectors)
-            print("leak hits:", n)
+            outcome = await hunt(db, client, terms, f"hunt-{_now()}", _now(),
+                                 detectors=cfg.pii_detectors)
+            print("leak hits:", outcome.hit_count)
     asyncio.run(go())
 
 
@@ -217,20 +218,24 @@ def run_cycle(cfg, db, seeds_path: str = "seeds.txt",
         terms = []
         if os.path.exists(cfg.watchlist_terms):
             terms = load_terms(cfg.watchlist_terms)
-        if not terms:
-            result["alerts"] = 0
-            result["hunt_skipped"] = "no watchlist terms"
+        verified = load_verified_sources("verified_sources.toml")
+        run_id = f"run-{_now()}"
+
+        async def go_hunt():
+            async with client_factory(cfg) as client:
+                return await hunt(db, client, terms, run_id, _now(),
+                                  detectors=cfg.pii_detectors, verified=verified)
+
+        outcome = asyncio.run(go_hunt())
+        emitted = []
+        if terms:
+            emitted += reconcile_leaks(db, cfg, run_id, outcome.covered_urls, _now())
         else:
-            run_id = f"run-{_now()}"
-
-            async def go_hunt():
-                async with client_factory(cfg) as client:
-                    return await hunt(db, client, terms, run_id, _now(), detectors=cfg.pii_detectors)
-
-            _, covered = asyncio.run(go_hunt())
-            emitted = reconcile_leaks(db, cfg, run_id, covered, _now())
-            emitted += reconcile_dead_originals(db, cfg, _now())
-            result["alerts"] = len(emitted)
+            result["hunt_skipped"] = "no watchlist terms (anchors still re-verified)"
+        emitted += reconcile_dead_originals(db, cfg, _now())
+        emitted += reconcile_anchor_identity(db, cfg, outcome.identity_checked,
+                                             outcome.identity_failed, _now())
+        result["alerts"] = len(emitted)
     except Exception as exc:  # noqa: BLE001 - isolate this cycle's failure
         result["ok"] = False
         result["error"] = f"hunt/alert failed: {exc!r}"
