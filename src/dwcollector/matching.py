@@ -1,6 +1,8 @@
 from __future__ import annotations
+import base64
 import re
 from dataclasses import dataclass
+from urllib.parse import quote
 
 
 @dataclass
@@ -29,3 +31,18 @@ def normalize_defang(s: str) -> str:
     s = _AT.sub("@", s)
     s = _AROUND.sub(r"\1", s)
     return s.casefold()
+
+
+def encodings_of(value: str) -> list[str]:
+    raw = value.encode("utf-8")
+    out: set[str] = set()
+    for enc in (base64.b64encode, base64.urlsafe_b64encode):
+        b = enc(raw).decode("ascii")
+        out.add(b)
+        out.add(b.rstrip("="))
+    h = raw.hex()
+    out.add(h)
+    out.add(h.upper())
+    out.add(quote(value, safe=""))
+    out.discard(value)
+    return [e for e in out if e]
