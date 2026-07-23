@@ -63,9 +63,9 @@ with `re:` for regex patterns. Example:
 
 **Alert types:**
 
-- **CRITICAL** (`new-leak`): A client identifier was found on a verified/probable trusted site,
+- **CRITICAL** (`leak`): A client identifier was found on a verified/probable trusted site,
   never seen there before. Severity: `critical`.
-- **HIGH** (`dead-original`): A verified/probable trusted site (a clone-detection anchor)
+- **HIGH** (`dead_original`): A verified/probable trusted site (a clone-detection anchor)
   went dark / unreachable. Severity: `high`.
 
 Findings have an open/resolved lifecycle. A leak finding resolves when the
