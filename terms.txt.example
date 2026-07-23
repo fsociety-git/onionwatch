@@ -1,5 +1,14 @@
 # One identifier per line. Lines starting with # are ignored.
 # Literal substring match, case-insensitive. Prefix with re: for regex.
+
+# Matching modes (prefix a term to opt in; bare terms are literal, case-insensitive):
+#   re:<regex>       regular expression
+#   fuzzy:<ident>    defanged / obfuscated forms (acme[.]com, acme(dot)com, homoglyphs)
+#   enc:<value>      base64 / hex / URL-encoded forms of the value
+#   cred:<ident>     the identifier inside a credential pair (password is masked)
 acme-corp.com
 billing@acme-corp.com
 re:ACME-[A-Z]+-DB
+fuzzy:acme-corp.com
+enc:ACME-API-KEY
+cred:billing@acme-corp.com

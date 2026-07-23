@@ -61,6 +61,30 @@ with `re:` for regex patterns. Example:
     billing@acme-corp.com
     re:ACME-[A-Z]+-DB
 
+**Matching modes:**
+
+Terms support four rich matching modes — each is opt-in via a prefix:
+
+- **Literal (bare term):** case-insensitive substring match. `acme-corp.com` matches "ACME-CORP.COM", "acme-corp.com", and substrings like "my.acme-corp.com.net".
+- **Regex (`re:`):** compiled case-insensitively; use standard Python regex syntax. `re:acme-(corp|trading)` matches "acme-corp" or "acme-trading" in any case.
+- **Fuzzy (`fuzzy:`):** matches the term plus defanged/obfuscated forms — including bracket/paren notation (`acme[.]com`, `acme(dot)com`), dot-word (`acme dot com`), and Cyrillic homoglyphs disguised as Latin letters. `fuzzy:acme.com` catches "acme[.]com", "acme(.)com", "acme dot com", etc.
+- **Encoded (`enc:`):** matches base64, URL-encoded, and hex encodings of the term. `enc:ACME-API-KEY` finds "QUNNRy1BUEktS0VZ" (base64) and other variants in the text.
+- **Credential (`cred:`):** finds the term as a username/email in credential pairs (e.g., `username:password` or `email|apikey`). The password/secret is captured and stored **masked** (first part of identifier + masked secret). `cred:billing@acme-corp.com` finds "billing@acme-corp.com:mysecret" and records it as `billing@acme-corp.com:••••••••`.
+
+**PII detectors:**
+
+In addition to watchlist terms, `hunt` can scan for Personally Identifiable Information (PII) — credit cards, bank account numbers (IBANs), and Social Security Numbers — when configured. Enable them in `config.toml`:
+
+    pii_detectors = ["credit-card", "iban", "us-ssn"]
+
+Available detectors (all opt-in, default: empty):
+
+- **`credit-card`:** detects 13–19 digit card numbers (with optional spaces or hyphens); validates using Luhn algorithm.
+- **`iban`:** detects IBAN (International Bank Account Number) format; validates using mod-97 checksum. Detects contiguous IBANs only (spaces between digit groups will not match).
+- **`us-ssn`:** detects U.S. Social Security Numbers in format NNN-NN-NNNN; validates area, group, and serial rules.
+
+All PII matches are stored **masked**: credit cards as `•••• •••• •••• XXXX` (last 4 digits), SSNs as `•••-••-XXXX` (last 4 digits), and IBANs as masked except the last 4 characters. PII is recorded as one finding per site and detector type (not per card/SSN/IBAN), with a match count showing how many instances were found on that site.
+
 **Alert types:**
 
 - **CRITICAL** (`leak`): A client identifier was found on a verified/probable trusted site,
