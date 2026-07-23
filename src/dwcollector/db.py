@@ -94,7 +94,7 @@ class Database:
 
     def init_schema(self) -> None:
         self.conn.executescript(SCHEMA)
-        # Idempotent migration for DBs created before match_kind/match_count.
+        # Idempotent migrations for DBs created before later columns (match_kind/match_count, disposition*, alerts.suppressed).
         for ddl in (
             "ALTER TABLE leak_hits ADD COLUMN match_kind TEXT DEFAULT 'literal'",
             "ALTER TABLE leak_hits ADD COLUMN match_count INTEGER DEFAULT 1",

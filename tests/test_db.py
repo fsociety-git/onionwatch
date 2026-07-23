@@ -288,6 +288,15 @@ def test_triage_queue_open_new_severity_ordered(tmp_path):
     assert ids == [crit]        # only open+new; critical first; resolved 'hi' and dispositioned 'done' excluded
 
 
+def test_triage_queue_orders_critical_before_high(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    hi = _mk_finding(db, "leak:a|t", sev="high", now="2026-07-24T00:00:00")
+    crit = _mk_finding(db, "leak:b|t", sev="critical", now="2026-07-24T00:00:01")
+    q = db.triage_queue()
+    ids = [f["finding_id"] for f in q]
+    assert ids == [crit, hi]    # critical first, then high; proves CASE severity WHEN 'critical' THEN 0 ELSE 1 END ordering
+
+
 def test_disposition_sticky_across_reopen(tmp_path):
     # A disposition survives the machine resolve->reopen lifecycle (reconcilers
     # never touch it). Uses the raw finding methods that the reconcilers call.

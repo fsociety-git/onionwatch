@@ -210,7 +210,7 @@ disposition it.
     dwcollector triage
 
 Lists all open, un-triaged findings (those with `disposition = 'new'`), ordered
-by severity (critical first), then by last-seen timestamp. Use this to find
+by severity (critical first), then by last-seen timestamp (most recently seen first). Use this to find
 which findings need review.
 
 **Disposition commands:**
