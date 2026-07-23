@@ -285,3 +285,36 @@ def test_dead_original_body_carries_candidate_note():
     f = {"kind": "dead_original", "host": "x.onion", "url": "http://x.onion/",
          "context_snippet": "verify before trusting — candidate successors: http://sib.onion/"}
     assert "http://sib.onion/" in _body(f, "opened")
+
+
+def test_emit_suppresses_dispositioned_finding(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    cfg = _cfg(tmp_path, webhook="https://sink.local/hook")
+    db.open_finding("leak", "leak:x|t", "http://x.onion/", "x.onion", "t",
+                    "critical", "…", "2026-07-24T00:00:00")
+    db.set_disposition(db.get_finding("leak:x|t")["finding_id"],
+                       "false_positive", None, None, "2026-07-24T01:00:00")
+    f = db.get_finding("leak:x|t")
+    calls = []
+    emit(db, cfg, f, "opened", "2026-07-24T02:00:00", post_fn=lambda c, p: calls.append(p))
+    # no delivery
+    assert calls == []                                    # webhook not called
+    assert not (tmp_path / "alerts.jsonl").exists() or \
+           open(cfg.alerts_path).read() == ""             # no jsonl line
+    # audited as suppressed
+    row = list(db.conn.execute("SELECT delivered, suppressed FROM alerts"))[0]
+    assert row[0] == 0 and row[1] == 1
+
+
+def test_emit_delivers_when_not_dispositioned(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    cfg = _cfg(tmp_path, webhook="https://sink.local/hook")
+    db.open_finding("leak", "leak:x|t", "http://x.onion/", "x.onion", "t",
+                    "critical", "…", "2026-07-24T00:00:00")
+    f = db.get_finding("leak:x|t")                        # disposition defaults to 'new'
+    calls = []
+    emit(db, cfg, f, "opened", "2026-07-24T02:00:00", post_fn=lambda c, p: calls.append(p))
+    assert len(calls) == 1                                # delivered
+    assert open(cfg.alerts_path).read() != ""            # jsonl written
+    row = list(db.conn.execute("SELECT suppressed FROM alerts"))[0]
+    assert row[0] == 0
