@@ -48,6 +48,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("stats")
 
+    ap = sub.add_parser("alerts")
+    ap.add_argument("--status", choices=["open", "resolved", "all"], default="open")
+
     # Additional requirement: a 24/7 supervisor loop for continuous VM
     # operation. Repeats "crawl --resume" + "cluster" forever, sleeping
     # `--interval` seconds between cycles. Resumability comes for free from
@@ -135,6 +138,16 @@ def _run_stats(db):
     print(f"total={len(rows)} alive={alive}")
     print("by_category:", by_cat)
     print("by_trust:", by_trust)
+
+
+def _run_alerts(db, args) -> None:
+    rows = db.list_findings(None if args.status == "all" else args.status)
+    for f in rows:
+        when = f.get("resolved_at") or f.get("last_seen") or f.get("first_seen")
+        term = f.get("term") or "-"
+        print(f"[{f['status']}] {f['severity']} {f['kind']} "
+              f"{term} @ {f['host']} ({when})")
+    print(f"total: {len(rows)}")
 
 
 def run_cycle(cfg, db, seeds_path: str = "seeds.txt",
@@ -290,6 +303,8 @@ def main(argv: list[str] | None = None) -> int:
         _run_export(db, args)
     elif args.command == "stats":
         _run_stats(db)
+    elif args.command == "alerts":
+        _run_alerts(db, args)
     return 0
 
 

@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from dwcollector.cli import build_parser, run_cycle, supervisor_loop
+from dwcollector.cli import build_parser, run_cycle, supervisor_loop, _run_alerts
 from dwcollector.config import Config, load_config
 from dwcollector.db import Database
 from dwcollector.tor_client import FetchResult
@@ -197,3 +197,24 @@ def test_run_cycle_skips_hunt_without_watchlist(tmp_path, monkeypatch):
     assert res["ok"] is True
     assert res.get("alerts", 0) == 0
     assert "hunt_skipped" in res
+
+
+def test_alerts_command_lists_findings(tmp_path, capsys):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    db.open_finding("leak", "leak:http://x.onion/|acme.com", "http://x.onion/",
+                    "x.onion", "acme.com", "critical", "…", "2026-07-23T00:00:00")
+    db.open_finding("dead_original", "dead:http://y.onion/", "http://y.onion/",
+                    "y.onion", None, "high", None, "2026-07-23T00:00:00")
+    db.resolve_finding("dead:http://y.onion/", "2026-07-23T01:00:00")
+
+    args = build_parser().parse_args(["alerts", "--status", "open"])
+    _run_alerts(db, args)
+    out = capsys.readouterr().out
+    assert "acme.com" in out and "critical" in out
+    assert "y.onion" not in out          # resolved, excluded by --status open
+    assert "total: 1" in out
+
+    args_all = build_parser().parse_args(["alerts", "--status", "all"])
+    _run_alerts(db, args_all)
+    out_all = capsys.readouterr().out
+    assert "total: 2" in out_all
