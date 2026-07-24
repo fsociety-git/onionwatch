@@ -9,7 +9,8 @@ import sys
 import time
 from datetime import datetime, timezone
 
-from .config import load_config, load_categories, load_verified_sources, load_sources
+from .config import (load_config, load_categories, load_verified_sources,
+                     load_sources, load_clients)
 from .db import Database
 from .tor_client import TorClient
 from .discover import crawl
@@ -18,6 +19,7 @@ from .categorize import categorize
 from .cluster import run_clustering
 from .hunt import hunt, load_terms
 from .alerts import reconcile_leaks, reconcile_dead_originals, reconcile_anchor_identity
+from .report import client_findings, build_report, render_json, render_markdown
 
 
 def _now() -> str:
@@ -66,6 +68,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     hp = sub.add_parser("history")
     hp.add_argument("finding_id", type=int)
+
+    rp = sub.add_parser("report")
+    rp.add_argument("--client", required=True)
+    rp.add_argument("--format", choices=["md", "json"], default="md")
+    rp.add_argument("--since", default=None)
+    rp.add_argument("--all", action="store_true")
 
     # Additional requirement: a 24/7 supervisor loop for continuous VM
     # operation. Repeats "crawl --resume" + "cluster" forever, sleeping
@@ -202,6 +210,18 @@ def _run_history(db, args) -> None:
               f"[{e.get('actor') or '-'}] {e.get('note') or ''}")
 
 
+def _run_report(db, args) -> int:
+    clients = load_clients("clients.toml")
+    client = next((c for c in clients if c.get("name") == args.client), None)
+    if client is None:
+        print(f"unknown client: {args.client!r}", file=sys.stderr)
+        return 1
+    findings = client_findings(db, client, args.all, args.since)
+    report = build_report(args.client, findings, _now(), args.since)
+    print(render_json(report) if args.format == "json" else render_markdown(report))
+    return 0
+
+
 def run_cycle(cfg, db, seeds_path: str = "seeds.txt",
               crawl_fn=None, cluster_fn=None,
               client_factory=None) -> dict:
@@ -267,9 +287,9 @@ def run_cycle(cfg, db, seeds_path: str = "seeds.txt",
         result["error"] = f"cluster failed: {exc!r}"
 
     try:
-        terms = []
-        if os.path.exists(cfg.watchlist_terms):
-            terms = load_terms(cfg.watchlist_terms)
+        clients = load_clients("clients.toml")
+        base = load_terms(cfg.watchlist_terms) if os.path.exists(cfg.watchlist_terms) else []
+        terms = list(dict.fromkeys(base + [t for c in clients for t in c["terms"]]))
         verified = load_verified_sources("verified_sources.toml")
         run_id = f"run-{_now()}"
 
@@ -370,6 +390,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_note(db, args)
     elif args.command == "history":
         _run_history(db, args)
+    elif args.command == "report":
+        return _run_report(db, args)
     return 0
 
 
