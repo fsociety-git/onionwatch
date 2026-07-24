@@ -2,6 +2,7 @@ import json
 from types import SimpleNamespace
 from dwcollector.db import Database
 from dwcollector.alerts import emit, reconcile_leaks, reconcile_dead_originals
+from dwcollector.alerts import reconcile_listing_matches
 
 
 def _cfg(tmp_path, webhook=""):
@@ -318,3 +319,108 @@ def test_emit_delivers_when_not_dispositioned(tmp_path):
     assert open(cfg.alerts_path).read() != ""            # jsonl written
     row = list(db.conn.execute("SELECT suppressed FROM alerts"))[0]
     assert row[0] == 0
+
+
+def _listing(price_raw, product_text, price_value=None, currency="USD"):
+    return {"price_value": price_value, "currency": currency,
+            "price_raw": price_raw, "product_text": product_text}
+
+
+def test_reconcile_listing_match_opens_finding(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    cfg = _cfg(tmp_path)
+    db.replace_listings("http://m.onion/1", "m.onion",
+                        [_listing("0.05 BTC", "acme-db dump 0.05 BTC")], "t0")
+    alerts = reconcile_listing_matches(db, cfg, ["acme-db"], [], "t1")
+    fs = db.open_findings("market_listing")
+    assert len(fs) == 1
+    f = fs[0]
+    assert f["kind"] == "market_listing" and f["severity"] == "high"
+    assert f["term"] == "acme-db" and f["host"] == "m.onion"
+    assert f["dedup_key"] == "listing:m.onion|acme-db"
+    assert "0.05 BTC" in f["context_snippet"]        # price in evidence
+    assert len(alerts) == 1
+
+
+def test_reconcile_listing_dedup_same_host_term(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    cfg = _cfg(tmp_path)
+    # two different listing URLs on the same host, both matching the term
+    db.replace_listings("http://m.onion/1", "m.onion",
+                        [_listing("0.05 BTC", "acme-db one 0.05 BTC")], "t0")
+    db.replace_listings("http://m.onion/2", "m.onion",
+                        [_listing("1.0 XMR", "acme-db two 1.0 XMR")], "t0")
+    reconcile_listing_matches(db, cfg, ["acme-db"], [], "t1")
+    assert len(db.open_findings("market_listing")) == 1     # one finding, host+term
+
+
+def test_reconcile_listing_resolves_when_gone(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    cfg = _cfg(tmp_path)
+    db.replace_listings("http://m.onion/1", "m.onion",
+                        [_listing("0.05 BTC", "acme-db dump")], "t0")
+    reconcile_listing_matches(db, cfg, ["acme-db"], [], "t1")
+    db.replace_listings("http://m.onion/1", "m.onion", [], "t2")   # extraction cleared it
+    reconcile_listing_matches(db, cfg, ["acme-db"], [], "t3")
+    assert db.get_finding("listing:m.onion|acme-db")["status"] == "resolved"
+
+
+def test_reconcile_listing_reopens(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    cfg = _cfg(tmp_path)
+    db.replace_listings("http://m.onion/1", "m.onion",
+                        [_listing("0.05 BTC", "acme-db dump")], "t0")
+    reconcile_listing_matches(db, cfg, ["acme-db"], [], "t1")
+    db.replace_listings("http://m.onion/1", "m.onion", [], "t2")
+    reconcile_listing_matches(db, cfg, ["acme-db"], [], "t3")      # resolved
+    db.replace_listings("http://m.onion/1", "m.onion",
+                        [_listing("0.05 BTC", "acme-db back")], "t4")
+    reconcile_listing_matches(db, cfg, ["acme-db"], [], "t5")      # reopened
+    assert db.get_finding("listing:m.onion|acme-db")["status"] == "open"
+
+
+def test_reconcile_listing_pii_match_is_masked(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    cfg = _cfg(tmp_path)
+    db.replace_listings("http://m.onion/c", "m.onion",
+                        [_listing("$50", "cards 4111111111111111 for sale")], "t0")
+    reconcile_listing_matches(db, cfg, [], ["credit-card"], "t1")
+    fs = db.open_findings("market_listing")
+    assert len(fs) == 1
+    f = fs[0]
+    assert f["term"] == "pii:credit-card"
+    assert "4111111111111111" not in f["context_snippet"]   # raw PII never stored
+    assert "$50" in f["context_snippet"]                    # price present
+
+
+def test_reconcile_listing_suppressed_disposition(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    cfg = _cfg(tmp_path)
+    url = "http://m.onion/1"
+    db.replace_listings(url, "m.onion",
+                        [_listing("0.05 BTC", "acme-db 0.05 BTC")], "t0")
+    reconcile_listing_matches(db, cfg, ["acme-db"], [], "t1")       # opened -> delivered
+    fid = db.get_finding("listing:m.onion|acme-db")["finding_id"]
+    db.set_disposition(fid, "false_positive", None, None, "t2")
+    db.replace_listings(url, "m.onion", [], "t3")
+    reconcile_listing_matches(db, cfg, ["acme-db"], [], "t4")       # resolved -> suppressed
+    lines = open(cfg.alerts_path, encoding="utf-8").read().splitlines()
+    assert len(lines) == 1        # only the opened alert; resolved was suppressed
+
+
+def test_reconcile_listing_no_listings_returns_empty(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    cfg = _cfg(tmp_path)
+    assert reconcile_listing_matches(db, cfg, ["acme-db"], [], "t0") == []
+
+
+def test_market_listing_alert_copy():
+    from dwcollector.alerts import _title, _body
+    f = {"kind": "market_listing", "term": "acme-db", "host": "m.onion",
+         "url": "http://m.onion/1", "context_snippet": "[0.05 BTC] acme-db 0.05 BTC"}
+    t_open, t_res = _title(f, "opened"), _title(f, "resolved")
+    assert "acme-db" in t_open and "m.onion" in t_open and "listing" in t_open.lower()
+    assert t_open != t_res
+    assert "went dark" not in t_open and "went dark" not in t_res   # not dead-original copy
+    b = _body(f, "opened")
+    assert "acme-db" in b and "http://m.onion/1" in b and "listing" in b.lower()
