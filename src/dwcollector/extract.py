@@ -45,7 +45,7 @@ def _parse_amount(s: str) -> float | None:
 
 
 def extract_listings(text: str, *, window: int, max_listings: int) -> list[dict]:
-    if not text:
+    if not text or max_listings <= 0:
         return []
     hits = []  # (start, end, currency, raw, amt)
     for pat, kind in _PATTERNS:

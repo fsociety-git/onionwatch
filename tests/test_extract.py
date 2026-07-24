@@ -61,3 +61,16 @@ def test_thousands_and_decimal_separators():
     eu = extract_listings("bulk €1.234,56 lot", window=5, max_listings=5)
     assert us[0]["price_value"] == 1234.56
     assert eu[0]["price_value"] == 1234.56
+
+
+def test_max_listings_zero_or_negative_returns_empty():
+    text = "cheap $5 and $10 here"
+    # max_listings=0 should return empty
+    assert extract_listings(text, window=5, max_listings=0) == []
+    # max_listings=-1 should return empty
+    assert extract_listings(text, window=5, max_listings=-1) == []
+    # Sanity check: max_listings=1 returns exactly 1 record
+    recs = extract_listings(text, window=5, max_listings=1)
+    assert len(recs) == 1
+    assert recs[0]["currency"] == "USD"
+    assert recs[0]["price_value"] == 5.0
