@@ -424,3 +424,17 @@ def test_market_listing_alert_copy():
     assert "went dark" not in t_open and "went dark" not in t_res   # not dead-original copy
     b = _body(f, "opened")
     assert "acme-db" in b and "http://m.onion/1" in b and "listing" in b.lower()
+
+
+def test_market_listing_finding_assignable_to_case(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    cfg = _cfg(tmp_path)
+    db.replace_listings("http://m.onion/1", "m.onion",
+                        [_listing("0.05 BTC", "acme-db dump 0.05 BTC")], "t0")
+    reconcile_listing_matches(db, cfg, ["acme-db"], [], "t1")
+    fid = db.get_finding("listing:m.onion|acme-db")["finding_id"]
+    cid = db.create_case("acme breach", "acme.com", "analyst", "2026-07-24T00:00:00")
+    db.assign_finding(fid, cid, "analyst", "2026-07-24T00:00:00")
+    findings = db.case_findings(cid)
+    assert [f["finding_id"] for f in findings] == [fid]
+    assert findings[0]["kind"] == "market_listing"

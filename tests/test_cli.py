@@ -697,3 +697,22 @@ def test_run_cycle_no_listing_findings_when_extract_off(tmp_path, monkeypatch):
         cluster_fn=lambda *a, **k: 0,
         client_factory=lambda cfg: _StubClient("<html></html>"))
     assert not any(f["kind"] == "market_listing" for f in db.list_findings("open"))
+
+
+def test_run_cycle_no_listing_findings_when_watchlist_empty(tmp_path, monkeypatch):
+    import dwcollector.cli as cli_mod
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    db.replace_listings("http://m.onion/1", "m.onion", [
+        {"price_value": 0.05, "currency": "BTC", "price_raw": "0.05 BTC",
+         "product_text": "acme.com dump"}], "2026-07-24T00:00:00")
+    cfg = Config(watchlist_terms=str(tmp_path / "missing.txt"),
+                 alerts_path=str(tmp_path / "a.jsonl"),
+                 extract_listings=True)
+    monkeypatch.setattr(cli_mod, "load_verified_sources",
+                        lambda path: {"verified_onions": [], "pgp": {}, "directories": []})
+    run_cycle(
+        cfg, db, seeds_path=str(tmp_path / "seeds.txt"),
+        crawl_fn=lambda *a, **k: SimpleNamespace(discovered=0, alive=0, stop_reason="ok"),
+        cluster_fn=lambda *a, **k: 0,
+        client_factory=lambda cfg: _StubClient("<html></html>"))
+    assert not any(f["kind"] == "market_listing" for f in db.list_findings("open"))
