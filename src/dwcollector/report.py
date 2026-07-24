@@ -5,6 +5,16 @@ from .matching import underlying_key
 _DISMISSED = ("false_positive", "dismissed")
 
 
+def _finding_entry(f: dict) -> dict:
+    return {
+        "host": f.get("host"), "term": f.get("term"), "kind": f.get("kind"),
+        "severity": f.get("severity"), "status": f.get("status"),
+        "disposition": f.get("disposition") or "new",
+        "first_seen": f.get("first_seen"), "last_seen": f.get("last_seen"),
+        "evidence": f.get("context_snippet") or "",
+    }
+
+
 def client_findings(db, client: dict, include_all: bool, since: str | None) -> list[dict]:
     keys = {underlying_key(t) for t in client.get("terms", [])}
     rows = [f for f in db.list_findings()
@@ -40,12 +50,7 @@ def build_report(client_name: str, findings: list[dict], now: str,
         "client": client_name, "generated_at": now, "since": since,
         "summary": summary,
         "cases": cases or [],
-        "findings": [{
-            "host": f.get("host"), "term": f.get("term"), "severity": f.get("severity"),
-            "status": f.get("status"), "disposition": f.get("disposition") or "new",
-            "first_seen": f.get("first_seen"), "last_seen": f.get("last_seen"),
-            "evidence": f.get("context_snippet") or "",
-        } for f in findings],
+        "findings": [_finding_entry(f) for f in findings],
     }
 
 

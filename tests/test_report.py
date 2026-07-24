@@ -89,3 +89,30 @@ def test_report_includes_client_cases(tmp_path):
     assert json.loads(render_json(rep))["cases"][0]["case_id"] == cid
     md = render_markdown(rep)
     assert "Cases" in md and "Acme breach" in md
+
+
+def test_finding_entry_shared_shape_and_kind(tmp_path):
+    from dwcollector.report import _finding_entry
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    _leak(db, "acme.com", "leak:a")
+    f = db.get_finding("leak:a")
+    entry = _finding_entry(f)
+    assert entry == {
+        "host": "x.onion", "term": "acme.com", "kind": "leak",
+        "severity": "critical", "status": "open", "disposition": "new",
+        "first_seen": "2026-07-24T05:00:00", "last_seen": "2026-07-24T05:00:00",
+        "evidence": "ev-acme.com",
+    }
+
+
+def test_build_report_findings_gain_kind_key(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    _leak(db, "acme.com", "leak:a")
+    rep = build_report("Acme", client_findings(db, CLIENT, False, None),
+                       "2026-07-24T10:00:00", None)
+    entry = rep["findings"][0]
+    # all previously-existing keys still present, plus the additive kind
+    for k in ("host", "term", "severity", "status", "disposition",
+              "first_seen", "last_seen", "evidence"):
+        assert k in entry
+    assert entry["kind"] == "leak"
