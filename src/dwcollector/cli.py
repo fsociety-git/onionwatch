@@ -52,6 +52,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("stats")
 
+    lp = sub.add_parser("listings")
+    lp.add_argument("--host", default=None)
+    lp.add_argument("--currency", default=None)
+    lp.add_argument("--min-price", type=float, default=None)
+    lp.add_argument("--max-price", type=float, default=None)
+    lp.add_argument("--contains", default=None)
+    lp.add_argument("--format", choices=["table", "json"], default="table")
+
     ap = sub.add_parser("alerts")
     ap.add_argument("--status", choices=["open", "resolved", "all"], default="open")
 
@@ -174,6 +182,23 @@ def _run_export(db, args):
             w = csv.DictWriter(sys.stdout, fieldnames=list(rows[0].keys()))
             w.writeheader()
             w.writerows(rows)
+
+
+def _run_listings(db, args):
+    currency = args.currency.upper() if args.currency else None
+    rows = db.list_listings(host=args.host, currency=currency,
+                            min_price=args.min_price, max_price=args.max_price,
+                            contains=args.contains)
+    if args.format == "json":
+        json.dump(rows, sys.stdout, indent=2)
+        print()
+    else:
+        for r in rows:
+            price = (f"{r['price_value']} {r['currency']}"
+                     if r["price_value"] is not None else r["price_raw"])
+            text = (r["product_text"] or "")[:80]
+            print(f"{r['host']}  {price}  {text}")
+        print(f"total: {len(rows)}")
 
 
 def _run_stats(db):
@@ -490,6 +515,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_report(db, args)
     elif args.command == "case":
         return _run_case(db, args)
+    elif args.command == "listings":
+        _run_listings(db, args)
     return 0
 
 
