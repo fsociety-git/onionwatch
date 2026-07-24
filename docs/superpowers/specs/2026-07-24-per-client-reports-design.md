@@ -156,8 +156,12 @@ client whose `name == args.client` (case-sensitive); if none → stderr message 
 - `--since` is compared as an ISO-8601 string (lexicographic == chronological for
   the app's `"%Y-%m-%dT%H:%M:%S"` format); a malformed `--since` simply filters
   by string comparison (documented; no date parsing/validation in v1).
-- Reports contain only already-masked/bounded `context_snippet` evidence — no raw
-  leaked data (consistent with the evidence-only guarantee).
+- Reports use the existing `context_snippet` evidence: a **short bounded excerpt**
+  around each match (the evidence-only model — never the full leaked dataset).
+  `cred:` and PII-detector matches are masked (secret/PII never in clear); plain
+  literal/`fuzzy:`/`re:`/encoded matches show the surrounding page text as-is, so
+  a report can include a short raw excerpt around the client's identifier. No new
+  evidence gathering — reports surface the same snippet the `alerts` view shows.
 
 ## Testing (TDD, existing pytest style)
 
