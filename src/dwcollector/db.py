@@ -36,7 +36,8 @@ CREATE TABLE IF NOT EXISTS urls (
 );
 CREATE TABLE IF NOT EXISTS frontier (
     url TEXT PRIMARY KEY, depth INTEGER,
-    state TEXT DEFAULT 'pending', enqueued_at TEXT, attempts INTEGER DEFAULT 0
+    state TEXT DEFAULT 'pending', enqueued_at TEXT, attempts INTEGER DEFAULT 0,
+    priority INTEGER DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS clusters (
     cluster_id TEXT PRIMARY KEY, canonical_url TEXT,
@@ -114,6 +115,7 @@ class Database:
             "ALTER TABLE findings ADD COLUMN disposition_at TEXT",
             "ALTER TABLE alerts ADD COLUMN suppressed INTEGER DEFAULT 0",
             "ALTER TABLE findings ADD COLUMN case_id INTEGER",
+            "ALTER TABLE frontier ADD COLUMN priority INTEGER DEFAULT 0",
         ):
             try:
                 self.conn.execute(ddl)
@@ -172,18 +174,21 @@ class Database:
     def all_urls(self) -> list[dict]:
         return [dict(r) for r in self.conn.execute("SELECT * FROM urls")]
 
-    def enqueue(self, url, depth) -> None:
+    def enqueue(self, url, depth, priority=0) -> None:
         self.conn.execute(
-            "INSERT OR IGNORE INTO frontier (url, depth, state, enqueued_at) "
-            "VALUES (?, ?, 'pending', datetime('now'))",
-            (url, depth),
+            "INSERT INTO frontier (url, depth, state, enqueued_at, priority) "
+            "VALUES (?, ?, 'pending', datetime('now'), ?) "
+            "ON CONFLICT(url) DO UPDATE SET priority = excluded.priority "
+            "  WHERE frontier.state = 'pending' "
+            "    AND frontier.priority < excluded.priority",
+            (url, depth, priority),
         )
         self.conn.commit()
 
     def next_pending(self, limit) -> list[dict]:
         rows = [dict(r) for r in self.conn.execute(
             "SELECT * FROM frontier WHERE state='pending' "
-            "ORDER BY depth ASC LIMIT ?", (limit,))]
+            "ORDER BY priority DESC, depth ASC LIMIT ?", (limit,))]
         for r in rows:
             self.conn.execute(
                 "UPDATE frontier SET state='in_progress' WHERE url=?", (r["url"],))

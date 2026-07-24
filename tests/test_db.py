@@ -50,6 +50,67 @@ def test_frontier_roundtrip(tmp_path):
     db.mark_frontier("http://a.onion/", "done")
     assert db.count_frontier("done") == 1
 
+def test_enqueue_stores_priority(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    db.enqueue("http://a.onion/", 0, 100)
+    row = db.conn.execute(
+        "SELECT priority FROM frontier WHERE url=?", ("http://a.onion/",)).fetchone()
+    assert row["priority"] == 100
+
+
+def test_enqueue_default_priority_is_zero(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    db.enqueue("http://a.onion/", 0)                 # no priority arg
+    row = db.conn.execute(
+        "SELECT priority FROM frontier WHERE url=?", ("http://a.onion/",)).fetchone()
+    assert row["priority"] == 0
+
+
+def test_enqueue_keeps_highest_priority_on_pending(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    db.enqueue("http://a.onion/", 1, 10)
+    db.enqueue("http://a.onion/", 1, 100)            # higher -> upgrade
+    db.enqueue("http://a.onion/", 1, 50)             # lower -> no change
+    row = db.conn.execute(
+        "SELECT priority FROM frontier WHERE url=?", ("http://a.onion/",)).fetchone()
+    assert row["priority"] == 100
+    assert db.count_frontier("pending") == 1         # still one row
+
+
+def test_enqueue_does_not_touch_started_row(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    db.enqueue("http://a.onion/", 0, 10)
+    db.next_pending(10)                              # flips to in_progress
+    db.enqueue("http://a.onion/", 0, 999)           # must NOT change a started row
+    row = db.conn.execute(
+        "SELECT state, priority FROM frontier WHERE url=?",
+        ("http://a.onion/",)).fetchone()
+    assert row["state"] == "in_progress"
+    assert row["priority"] == 10
+
+
+def test_next_pending_orders_by_priority_then_depth(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    db.enqueue("http://low-shallow.onion/", 0, 0)
+    db.enqueue("http://high-deep.onion/", 5, 100)
+    db.enqueue("http://high-shallow.onion/", 1, 100)
+    batch = db.next_pending(10)
+    order = [r["url"] for r in batch]
+    # priority DESC first: both priority-100 before the priority-0 one
+    assert order.index("http://high-shallow.onion/") < order.index("http://low-shallow.onion/")
+    assert order.index("http://high-deep.onion/") < order.index("http://low-shallow.onion/")
+    # within priority 100, depth ASC: shallow before deep
+    assert order.index("http://high-shallow.onion/") < order.index("http://high-deep.onion/")
+
+
+def test_next_pending_all_zero_matches_depth_order(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    db.enqueue("http://d2.onion/", 2)
+    db.enqueue("http://d0.onion/", 0)
+    db.enqueue("http://d1.onion/", 1)
+    order = [r["url"] for r in db.next_pending(10)]   # all priority 0 -> depth ASC
+    assert order == ["http://d0.onion/", "http://d1.onion/", "http://d2.onion/"]
+
 def test_reset_state(tmp_path):
     db = make_db(tmp_path)
     db.enqueue("http://a.onion/", 0)
