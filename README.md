@@ -234,6 +234,30 @@ Review the full history of disposition changes and notes for a finding:
 Outputs the timestamp, disposition (or note marker), actor, and comment for each
 log entry, in chronological order.
 
+### Per-client reports
+
+`clients.toml` (optional; default absent = off) maps clients to watchlist terms.
+Each client is a `[[client]]` section with a `name` and a list of `terms`:
+
+    cp clients.toml.example clients.toml
+    # edit clients.toml to add your clients and their watchlist terms
+
+Client terms are added to the `loop` supervisor's hunt watchlist (deduped with
+`terms.txt`), so they're hunted alongside the standard watchlist. Generate a
+report for a specific client:
+
+    dwcollector report --client "Acme Corp" [--format md|json] [--since DATE] [--all]
+
+The command writes a Markdown or JSON report to stdout (redirect to a file as
+needed). The report includes the client's **leak** findings (both open and
+resolved) with evidence and disposition. By default, findings marked
+`false_positive` or `dismissed` are excluded; pass `--all` to include them.
+Use `--since DATE` to limit findings to those active since a specific date.
+
+Reports contain only **masked evidence**, never raw leaked data. Markdown
+reports are human-readable and can be converted to PDF or DOCX using standard
+tools like Pandoc.
+
 ## Run on host (uses your Tor on 127.0.0.1:9050)
 
 Set `socks_proxy = "socks5://127.0.0.1:9050"` in `config.toml`, then:

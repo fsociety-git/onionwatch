@@ -1,0 +1,9 @@
+# Clients and the watchlist terms that belong to them. Optional; absent = no
+# clients (per-client reports unavailable, watchlist unchanged).
+# Client terms are added to the loop's hunt watchlist (deduped with terms.txt),
+# and a client's report includes findings matching these terms. Terms may use
+# the same match prefixes as the watchlist (fuzzy:/enc:/cred:/re:).
+
+# [[client]]
+# name  = "Acme Corp"
+# terms = ["acme-corp.com", "billing@acme-corp.com", "fuzzy:ACME-CUSTOMER-DB"]
