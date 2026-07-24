@@ -258,6 +258,58 @@ Evidence is a **bounded excerpt** around each match (never full leaked datasets)
 reports are human-readable and can be converted to PDF or DOCX using standard
 tools like Pandoc.
 
+### Case management
+
+Cases group related findings into a single incident for analysis and tracking.
+A finding belongs to at most one case (via its `case_id`), assigned manually by
+analysts. Cases have three states — `open`, `investigating`, `closed` — and
+track an optional client reference (a free-text field, independent of the
+`clients.toml` watchlist). The case timeline is append-only: all membership
+changes (assign/unassign), state transitions, and analyst notes are logged with
+timestamp and actor.
+
+**Case membership and state are analyst-owned:** only analysts create cases,
+assign findings, change states, and add notes. The detection and reconciliation
+lifecycle (crawl/hunt/cluster) never touches `case_id` or case state — cases are
+a purely analyst-driven review layer.
+
+**Commands:**
+
+Create a new case:
+
+    dwcollector case create "<title>" [--client "Name"] [--by "analyst@corp"]
+
+Lists cases with optional filtering:
+
+    dwcollector case list [--client "Name"] [--state open|investigating|closed]
+
+Show case details (header, member findings, timeline):
+
+    dwcollector case show <case_id>
+
+Assign a finding to a case:
+
+    dwcollector case assign <finding_id> <case_id> [--by "analyst@corp"]
+
+Remove a finding from a case:
+
+    dwcollector case unassign <finding_id> [--by "analyst@corp"]
+
+Change a case's state and optionally add a note:
+
+    dwcollector case state <case_id> <open|investigating|closed> [--note "..."] [--by "analyst@corp"]
+
+Add a note to a case without changing state:
+
+    dwcollector case note <case_id> --text "..." [--by "analyst@corp"]
+
+Cases appear as a **Cases** section in the per-client report:
+
+    dwcollector report --client "Acme Corp" [--format md|json] [--since DATE] [--all]
+
+The report includes all cases for that client, along with each case's member
+findings, state, and timeline notes.
+
 ## Run on host (uses your Tor on 127.0.0.1:9050)
 
 Set `socks_proxy = "socks5://127.0.0.1:9050"` in `config.toml`, then:
