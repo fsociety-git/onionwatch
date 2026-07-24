@@ -91,6 +91,12 @@ CREATE TABLE IF NOT EXISTS case_log (
     log_id INTEGER PRIMARY KEY AUTOINCREMENT,
     case_id INTEGER, event TEXT, note TEXT, actor TEXT, at TEXT
 );
+CREATE TABLE IF NOT EXISTS listings (
+    listing_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    url TEXT, host TEXT,
+    price_value REAL, currency TEXT, price_raw TEXT,
+    product_text TEXT, extracted_at TEXT
+);
 """
 
 class Database:
@@ -426,3 +432,30 @@ class Database:
     def case_history(self, case_id) -> list[dict]:
         return [dict(r) for r in self.conn.execute(
             "SELECT * FROM case_log WHERE case_id = ? ORDER BY log_id", (case_id,))]
+
+    def replace_listings(self, url, host, records, now) -> None:
+        self.conn.execute("DELETE FROM listings WHERE url = ?", (url,))
+        self.conn.executemany(
+            "INSERT INTO listings "
+            "(url, host, price_value, currency, price_raw, product_text, extracted_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [(url, host, r.get("price_value"), r.get("currency"), r.get("price_raw"),
+              r.get("product_text"), now) for r in records])
+        self.conn.commit()
+
+    def list_listings(self, host=None, currency=None, min_price=None,
+                      max_price=None, contains=None) -> list[dict]:
+        q, conds, params = "SELECT * FROM listings", [], []
+        if host:
+            conds.append("host = ?"); params.append(host)
+        if currency:
+            conds.append("currency = ?"); params.append(currency)
+        if min_price is not None:
+            conds.append("price_value IS NOT NULL AND price_value >= ?"); params.append(min_price)
+        if max_price is not None:
+            conds.append("price_value IS NOT NULL AND price_value <= ?"); params.append(max_price)
+        if contains:
+            conds.append("product_text LIKE ?"); params.append(f"%{contains}%")
+        if conds:
+            q += " WHERE " + " AND ".join(conds)
+        return [dict(r) for r in self.conn.execute(q + " ORDER BY host, listing_id", params)]
