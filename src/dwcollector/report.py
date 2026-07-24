@@ -20,8 +20,14 @@ def client_findings(db, client: dict, include_all: bool, since: str | None) -> l
     return rows
 
 
+def client_cases(db, client_name: str) -> list[dict]:
+    return [{"case_id": c["case_id"], "title": c["title"], "state": c["state"],
+             "findings": len(db.case_findings(c["case_id"]))}
+            for c in db.list_cases(client=client_name)]
+
+
 def build_report(client_name: str, findings: list[dict], now: str,
-                 since: str | None = None) -> dict:
+                 since: str | None = None, cases: list[dict] | None = None) -> dict:
     summary = {
         "total": len(findings),
         "open": sum(1 for f in findings if f.get("status") == "open"),
@@ -33,6 +39,7 @@ def build_report(client_name: str, findings: list[dict], now: str,
     return {
         "client": client_name, "generated_at": now, "since": since,
         "summary": summary,
+        "cases": cases or [],
         "findings": [{
             "host": f.get("host"), "term": f.get("term"), "severity": f.get("severity"),
             "status": f.get("status"), "disposition": f.get("disposition") or "new",
@@ -58,6 +65,12 @@ def render_markdown(report: dict) -> str:
          f"{s['critical']} critical, {s['high']} high · {s['sites']} sites"),
         "",
     ]
+    if report.get("cases"):
+        lines += ["## Cases", ""]
+        for c in report["cases"]:
+            lines.append(f"- #{c['case_id']} [{c['state']}] {c['title']} "
+                         f"({c['findings']} findings)")
+        lines.append("")
     if not report["findings"]:
         lines.append("_No findings._")
     for f in report["findings"]:

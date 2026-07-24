@@ -469,3 +469,93 @@ def test_report_all_flag_includes_dismissed(tmp_path, capsys, monkeypatch):
     assert _json.loads(capsys.readouterr().out)["summary"]["total"] == 0   # dismissed excluded
     _run_report(db, build_parser().parse_args(["report", "--client", "Acme", "--format", "json", "--all"]))
     assert _json.loads(capsys.readouterr().out)["summary"]["total"] == 1   # --all includes
+
+
+# --- Task 3: nested `case` CLI command group ---
+
+from dwcollector.cli import build_parser, _run_case
+
+
+def _seed_case_finding(db, dedup="leak:http://x.onion/|acme.com"):
+    db.open_finding("leak", dedup, "http://x.onion/", "x.onion", "acme.com",
+                    "critical", "ev", "2026-07-24T00:00:00")
+    return db.get_finding(dedup)["finding_id"]
+
+
+def test_case_create_assign_state_show(tmp_path, capsys):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    fid = _seed_case_finding(db)
+
+    assert _run_case(db, build_parser().parse_args(
+        ["case", "create", "Acme breach", "--client", "Acme Corp"])) == 0
+    out = capsys.readouterr().out
+    assert "created case #1" in out
+    cid = 1
+
+    assert _run_case(db, build_parser().parse_args(
+        ["case", "assign", str(fid), str(cid), "--by", "alice"])) == 0
+    capsys.readouterr()
+    assert db.get_finding_by_id(fid)["case_id"] == cid
+
+    assert _run_case(db, build_parser().parse_args(
+        ["case", "state", str(cid), "investigating", "--note", "working"])) == 0
+    capsys.readouterr()
+    assert db.get_case(cid)["state"] == "investigating"
+
+    assert _run_case(db, build_parser().parse_args(["case", "show", str(cid)])) == 0
+    show = capsys.readouterr().out
+    assert "Acme breach" in show and f"#{fid}" in show and "investigating" in show
+    assert "assigned finding" in show          # timeline present
+
+
+def test_case_bad_ids_error(tmp_path, capsys):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    assert _run_case(db, build_parser().parse_args(["case", "show", "999"])) == 1
+    assert "999" in capsys.readouterr().err
+    db.create_case("C", None, None, "2026-07-24T00:00:00")
+    assert _run_case(db, build_parser().parse_args(["case", "assign", "42", "1"])) == 1  # no finding #42
+    assert "42" in capsys.readouterr().err
+
+
+def test_case_assign_bad_case_id(tmp_path, capsys):
+    # Test case assign with valid finding but bad/nonexistent case_id.
+    # This covers the second validation branch in the assign action.
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    fid = _seed_case_finding(db)
+
+    # Try to assign valid finding to nonexistent case #999
+    assert _run_case(db, build_parser().parse_args(
+        ["case", "assign", str(fid), "999", "--by", "alice"])) == 1
+    assert "999" in capsys.readouterr().err
+
+    # Verify the finding's case_id was NOT set (no partial write)
+    assert db.get_finding_by_id(fid)["case_id"] is None
+
+
+def test_case_list_and_note(tmp_path, capsys):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    _run_case(db, build_parser().parse_args(["case", "create", "One", "--client", "Acme"]))
+    _run_case(db, build_parser().parse_args(["case", "create", "Two"]))
+    capsys.readouterr()
+    _run_case(db, build_parser().parse_args(["case", "list", "--client", "Acme"]))
+    lst = capsys.readouterr().out
+    assert "One" in lst and "Two" not in lst
+    assert _run_case(db, build_parser().parse_args(["case", "note", "1", "--text", "hi"])) == 0
+    assert any(e["note"] == "hi" for e in db.case_history(1))
+
+
+def test_report_command_shows_cases(tmp_path, capsys, monkeypatch):
+    import dwcollector.cli as cli_mod
+    from dwcollector.cli import build_parser, _run_report
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    db.open_finding("leak", "leak:http://x.onion/|acme.com", "http://x.onion/",
+                    "x.onion", "acme.com", "critical", "ev", "2026-07-24T00:00:00")
+    cid = db.create_case("Acme breach", "Acme", None, "2026-07-24T00:00:00")
+    db.assign_finding(db.get_finding("leak:http://x.onion/|acme.com")["finding_id"],
+                      cid, None, "2026-07-24T01:00:00")
+    monkeypatch.setattr(cli_mod, "load_clients",
+                        lambda p: [{"name": "Acme", "terms": ["acme.com"]}])
+    import json
+    _run_report(db, build_parser().parse_args(["report", "--client", "Acme", "--format", "json"]))
+    doc = json.loads(capsys.readouterr().out)
+    assert doc["cases"][0]["title"] == "Acme breach"

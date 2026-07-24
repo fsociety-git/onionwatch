@@ -308,3 +308,109 @@ def test_disposition_sticky_across_reopen(tmp_path):
     db.reopen_finding("leak:u|t", "2026-07-24T03:00:00", "s")     # machine reopen
     assert db.get_finding_by_id(fid)["disposition"] == "false_positive"
     assert db.get_finding_by_id(fid)["status"] == "open"          # status did flip
+
+
+def test_case_migration_adds_tables_and_column(tmp_path):
+    import sqlite3
+    p = str(tmp_path / "legacy.db")
+    c = sqlite3.connect(p)
+    c.execute("CREATE TABLE findings (finding_id INTEGER PRIMARY KEY AUTOINCREMENT, "
+              "kind TEXT, dedup_key TEXT UNIQUE, url TEXT, host TEXT, term TEXT, "
+              "status TEXT, severity TEXT, first_seen TEXT, last_seen TEXT, "
+              "resolved_at TEXT, context_snippet TEXT)")
+    c.commit(); c.close()
+    db = Database(p); db.init_schema()                          # must not raise
+    fcols = {r[1] for r in db.conn.execute("PRAGMA table_info(findings)")}
+    assert "case_id" in fcols
+    assert {r[1] for r in db.conn.execute("PRAGMA table_info(cases)")} >= \
+        {"case_id", "title", "client", "state", "created_at", "created_by", "closed_at"}
+    assert {r[1] for r in db.conn.execute("PRAGMA table_info(case_log)")} >= \
+        {"case_id", "event", "note", "actor", "at"}
+
+
+def test_create_case_and_list(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    cid = db.create_case("Acme billing breach", "Acme Corp", "alice", "2026-07-24T00:00:00")
+    assert cid >= 1
+    c = db.get_case(cid)
+    assert c["title"] == "Acme billing breach" and c["client"] == "Acme Corp"
+    assert c["state"] == "open" and c["created_by"] == "alice"
+    # created event logged
+    log = list(db.conn.execute("SELECT event FROM case_log WHERE case_id=?", (cid,)))
+    assert log[0][0] == "created"
+    # list filters
+    db.create_case("Internal", None, None, "2026-07-24T01:00:00")
+    assert {c["title"] for c in db.list_cases(client="Acme Corp")} == {"Acme billing breach"}
+    assert len(db.list_cases()) == 2
+
+
+def _case_finding(db, dedup, sev="critical"):
+    db.open_finding("leak", dedup, "http://x.onion/", "x.onion", "t", sev, "ev",
+                    "2026-07-24T00:00:00")
+    return db.get_finding(dedup)["finding_id"]
+
+
+def test_assign_unassign_finding(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    cid = db.create_case("C", None, None, "2026-07-24T00:00:00")
+    fid = _case_finding(db, "leak:a")
+    db.assign_finding(fid, cid, "alice", "2026-07-24T01:00:00")
+    assert db.get_finding_by_id(fid)["case_id"] == cid
+    assert [f["finding_id"] for f in db.case_findings(cid)] == [fid]
+    assert any("assigned finding" in e["event"] for e in db.case_history(cid))
+    db.unassign_finding(fid, "alice", "2026-07-24T02:00:00")
+    assert db.get_finding_by_id(fid)["case_id"] is None
+    assert db.case_findings(cid) == []
+    assert any("unassigned finding" in e["event"] for e in db.case_history(cid))
+    # unassign a finding with no case -> no-op, no raise, no new log
+    n = len(db.case_history(cid))
+    db.unassign_finding(fid, None, "2026-07-24T03:00:00")
+    assert len(db.case_history(cid)) == n
+
+
+def test_set_case_state_and_note(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    cid = db.create_case("C", None, None, "2026-07-24T00:00:00")
+    db.set_case_state(cid, "investigating", "on it", "alice", "2026-07-24T01:00:00")
+    assert db.get_case(cid)["state"] == "investigating"
+    assert db.get_case(cid)["closed_at"] is None
+    db.set_case_state(cid, "closed", None, "alice", "2026-07-24T02:00:00")
+    assert db.get_case(cid)["state"] == "closed"
+    assert db.get_case(cid)["closed_at"] == "2026-07-24T02:00:00"
+    db.set_case_state(cid, "open", None, "alice", "2026-07-24T03:00:00")   # reopen clears closed_at
+    assert db.get_case(cid)["closed_at"] is None
+    db.add_case_note(cid, "a comment", "bob", "2026-07-24T04:00:00")
+    hist = db.case_history(cid)
+    assert any(e["event"] == "note" and e["note"] == "a comment" for e in hist)
+    assert any(e["event"] == "state: closed" for e in hist)
+
+
+def test_case_id_survives_finding_lifecycle(tmp_path):
+    # Prove case_id survives the machine reconciler lifecycle: machine
+    # reconcilers (resolve, reopen, touch) must never clobber analyst-owned
+    # case membership. This is the headline invariant for case management.
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    dedup = "leak:http://x.onion/|acme.com"
+    db.open_finding("leak", dedup, "http://x.onion/", "x.onion", "acme.com",
+                    "critical", "context", "2026-07-24T00:00:00")
+    fid = db.get_finding(dedup)["finding_id"]
+    cid = db.create_case("Test case", "Test Corp", "alice", "2026-07-24T00:30:00")
+
+    # Assign the finding to a case
+    db.assign_finding(fid, cid, "alice", "2026-07-24T00:35:00")
+    assert db.get_finding_by_id(fid)["case_id"] == cid
+
+    # Lifecycle transition 1: resolve (machine)
+    db.resolve_finding(dedup, "2026-07-24T01:00:00")
+    assert db.get_finding_by_id(fid)["case_id"] == cid, "resolve must not touch case_id"
+
+    # Lifecycle transition 2: reopen (machine)
+    db.reopen_finding(dedup, "2026-07-24T02:00:00", "updated context")
+    assert db.get_finding_by_id(fid)["case_id"] == cid, "reopen must not touch case_id"
+
+    # Lifecycle transition 3: touch (machine)
+    db.touch_finding(dedup, "2026-07-24T03:00:00")
+    assert db.get_finding_by_id(fid)["case_id"] == cid, "touch must not touch case_id"
+
+    # Verify case_id field still exists after all transitions
+    assert db.get_finding_by_id(fid)["case_id"] is not None

@@ -19,7 +19,8 @@ from .categorize import categorize
 from .cluster import run_clustering
 from .hunt import hunt, load_terms
 from .alerts import reconcile_leaks, reconcile_dead_originals, reconcile_anchor_identity
-from .report import client_findings, build_report, render_json, render_markdown
+from .report import (client_findings, build_report, render_json, render_markdown,
+                     client_cases)
 
 
 def _now() -> str:
@@ -74,6 +75,24 @@ def build_parser() -> argparse.ArgumentParser:
     rp.add_argument("--format", choices=["md", "json"], default="md")
     rp.add_argument("--since", default=None)
     rp.add_argument("--all", action="store_true")
+
+    cp = sub.add_parser("case")
+    csub = cp.add_subparsers(dest="case_action", required=True)
+    cc = csub.add_parser("create"); cc.add_argument("title")
+    cc.add_argument("--client", default=None); cc.add_argument("--by", default=None)
+    cl = csub.add_parser("list")
+    cl.add_argument("--client", default=None); cl.add_argument("--state", default=None)
+    cs = csub.add_parser("show"); cs.add_argument("case_id", type=int)
+    ca = csub.add_parser("assign")
+    ca.add_argument("finding_id", type=int); ca.add_argument("case_id", type=int)
+    ca.add_argument("--by", default=None)
+    cu = csub.add_parser("unassign")
+    cu.add_argument("finding_id", type=int); cu.add_argument("--by", default=None)
+    cst = csub.add_parser("state"); cst.add_argument("case_id", type=int)
+    cst.add_argument("value", choices=["open", "investigating", "closed"])
+    cst.add_argument("--note", default=None); cst.add_argument("--by", default=None)
+    cn = csub.add_parser("note"); cn.add_argument("case_id", type=int)
+    cn.add_argument("--text", required=True); cn.add_argument("--by", default=None)
 
     # Additional requirement: a 24/7 supervisor loop for continuous VM
     # operation. Repeats "crawl --resume" + "cluster" forever, sleeping
@@ -217,9 +236,73 @@ def _run_report(db, args) -> int:
         print(f"unknown client: {args.client!r}", file=sys.stderr)
         return 1
     findings = client_findings(db, client, args.all, args.since)
-    report = build_report(args.client, findings, _now(), args.since)
+    cases = client_cases(db, args.client)
+    report = build_report(args.client, findings, _now(), args.since, cases=cases)
     print(render_json(report) if args.format == "json" else render_markdown(report))
     return 0
+
+
+def _run_case(db, args) -> int:
+    a = args.case_action
+    if a == "create":
+        cid = db.create_case(args.title, args.client, args.by, _now())
+        print(f"created case #{cid}")
+        return 0
+    if a == "list":
+        for c in db.list_cases(client=args.client, state=args.state):
+            n = len(db.case_findings(c["case_id"]))
+            print(f"#{c['case_id']} [{c['state']}] {c.get('client') or '-'} "
+                  f"— {c['title']} ({n} findings)")
+        return 0
+    if a == "show":
+        c = db.get_case(args.case_id)
+        if c is None:
+            print(f"no case #{args.case_id}", file=sys.stderr)
+            return 1
+        closed = f", closed {c['closed_at']}" if c.get("closed_at") else ""
+        print(f"#{c['case_id']} [{c['state']}] {c.get('client') or '-'} — {c['title']}")
+        print(f"created {c['created_at']} by {c.get('created_by') or '-'}{closed}")
+        print("findings:")
+        for f in db.case_findings(args.case_id):
+            print(f"  #{f['finding_id']} {f['severity']} {f['kind']} "
+                  f"{f.get('term') or '-'} @ {f['host']} [{f.get('disposition') or 'new'}]")
+        print("timeline:")
+        for e in db.case_history(args.case_id):
+            note = f" {e['note']}" if e.get("note") else ""
+            print(f"  {e['at']} {e['event']} [{e.get('actor') or '-'}]{note}")
+        return 0
+    if a == "assign":
+        if db.get_finding_by_id(args.finding_id) is None:
+            print(f"no finding #{args.finding_id}", file=sys.stderr)
+            return 1
+        if db.get_case(args.case_id) is None:
+            print(f"no case #{args.case_id}", file=sys.stderr)
+            return 1
+        db.assign_finding(args.finding_id, args.case_id, args.by, _now())
+        print(f"assigned #{args.finding_id} -> case #{args.case_id}")
+        return 0
+    if a == "unassign":
+        if db.get_finding_by_id(args.finding_id) is None:
+            print(f"no finding #{args.finding_id}", file=sys.stderr)
+            return 1
+        db.unassign_finding(args.finding_id, args.by, _now())
+        print(f"unassigned #{args.finding_id}")
+        return 0
+    if a == "state":
+        if db.get_case(args.case_id) is None:
+            print(f"no case #{args.case_id}", file=sys.stderr)
+            return 1
+        db.set_case_state(args.case_id, args.value, args.note, args.by, _now())
+        print(f"case #{args.case_id} -> {args.value}")
+        return 0
+    if a == "note":
+        if db.get_case(args.case_id) is None:
+            print(f"no case #{args.case_id}", file=sys.stderr)
+            return 1
+        db.add_case_note(args.case_id, args.text, args.by, _now())
+        print(f"note added to case #{args.case_id}")
+        return 0
+    return 1
 
 
 def run_cycle(cfg, db, seeds_path: str = "seeds.txt",
@@ -392,6 +475,8 @@ def main(argv: list[str] | None = None) -> int:
         _run_history(db, args)
     elif args.command == "report":
         return _run_report(db, args)
+    elif args.command == "case":
+        return _run_case(db, args)
     return 0
 
 

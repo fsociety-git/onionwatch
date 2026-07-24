@@ -68,3 +68,24 @@ def test_build_report_summary_and_render(tmp_path):
     assert j["client"] == "Acme" and len(j["findings"]) == 2
     md = render_markdown(rep)
     assert "Acme" in md and "a.onion" in md and "acme.com" in md
+
+
+def test_report_includes_client_cases(tmp_path):
+    from dwcollector.report import client_cases
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    cid = db.create_case("Acme breach", "Acme", None, "2026-07-24T00:00:00")
+    db.create_case("Other", "Beta", None, "2026-07-24T00:00:00")     # different client
+    fid = _leak(db, "acme.com", "leak:a")
+    db.assign_finding(fid, cid, None, "2026-07-24T01:00:00")
+
+    cases = client_cases(db, "Acme")
+    assert [c["title"] for c in cases] == ["Acme breach"]            # Beta's case excluded
+    assert cases[0]["findings"] == 1 and cases[0]["state"] == "open"
+
+    rep = build_report("Acme", client_findings(db, CLIENT, False, None),
+                       "2026-07-24T10:00:00", None, cases=cases)
+    assert rep["cases"][0]["title"] == "Acme breach"
+    import json
+    assert json.loads(render_json(rep))["cases"][0]["case_id"] == cid
+    md = render_markdown(rep)
+    assert "Cases" in md and "Acme breach" in md
