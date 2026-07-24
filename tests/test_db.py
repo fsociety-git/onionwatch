@@ -383,3 +383,34 @@ def test_set_case_state_and_note(tmp_path):
     hist = db.case_history(cid)
     assert any(e["event"] == "note" and e["note"] == "a comment" for e in hist)
     assert any(e["event"] == "state: closed" for e in hist)
+
+
+def test_case_id_survives_finding_lifecycle(tmp_path):
+    # Prove case_id survives the machine reconciler lifecycle: machine
+    # reconcilers (resolve, reopen, touch) must never clobber analyst-owned
+    # case membership. This is the headline invariant for case management.
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    dedup = "leak:http://x.onion/|acme.com"
+    db.open_finding("leak", dedup, "http://x.onion/", "x.onion", "acme.com",
+                    "critical", "context", "2026-07-24T00:00:00")
+    fid = db.get_finding(dedup)["finding_id"]
+    cid = db.create_case("Test case", "Test Corp", "alice", "2026-07-24T00:30:00")
+
+    # Assign the finding to a case
+    db.assign_finding(fid, cid, "alice", "2026-07-24T00:35:00")
+    assert db.get_finding_by_id(fid)["case_id"] == cid
+
+    # Lifecycle transition 1: resolve (machine)
+    db.resolve_finding(dedup, "2026-07-24T01:00:00")
+    assert db.get_finding_by_id(fid)["case_id"] == cid, "resolve must not touch case_id"
+
+    # Lifecycle transition 2: reopen (machine)
+    db.reopen_finding(dedup, "2026-07-24T02:00:00", "updated context")
+    assert db.get_finding_by_id(fid)["case_id"] == cid, "reopen must not touch case_id"
+
+    # Lifecycle transition 3: touch (machine)
+    db.touch_finding(dedup, "2026-07-24T03:00:00")
+    assert db.get_finding_by_id(fid)["case_id"] == cid, "touch must not touch case_id"
+
+    # Verify case_id field still exists after all transitions
+    assert db.get_finding_by_id(fid)["case_id"] is not None

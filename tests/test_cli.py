@@ -517,6 +517,21 @@ def test_case_bad_ids_error(tmp_path, capsys):
     assert "42" in capsys.readouterr().err
 
 
+def test_case_assign_bad_case_id(tmp_path, capsys):
+    # Test case assign with valid finding but bad/nonexistent case_id.
+    # This covers the second validation branch in the assign action.
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    fid = _seed_case_finding(db)
+
+    # Try to assign valid finding to nonexistent case #999
+    assert _run_case(db, build_parser().parse_args(
+        ["case", "assign", str(fid), "999", "--by", "alice"])) == 1
+    assert "999" in capsys.readouterr().err
+
+    # Verify the finding's case_id was NOT set (no partial write)
+    assert db.get_finding_by_id(fid)["case_id"] is None
+
+
 def test_case_list_and_note(tmp_path, capsys):
     db = Database(str(tmp_path / "t.db")); db.init_schema()
     _run_case(db, build_parser().parse_args(["case", "create", "One", "--client", "Acme"]))
