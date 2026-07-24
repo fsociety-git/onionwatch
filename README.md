@@ -394,7 +394,7 @@ Documented, not yet implemented:
 - **`inbound_links` is never populated**, so the last-resort canonical
   tiebreaker is currently inert.
 
-### Crawl prioritization (optional)
+## Crawl prioritization (optional)
 
 By default the crawler is breadth-first: pages are fetched in discovery order,
 shallowest first. To fetch high-value sites sooner, add a `[crawl_priority]`
