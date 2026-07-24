@@ -20,7 +20,8 @@ from .cluster import run_clustering
 from .hunt import hunt, load_terms
 from .alerts import reconcile_leaks, reconcile_dead_originals, reconcile_anchor_identity
 from .report import (client_findings, build_report, render_json, render_markdown,
-                     client_cases)
+                     client_cases, build_case_report, render_case_json,
+                     render_case_markdown)
 
 
 def _now() -> str:
@@ -71,7 +72,9 @@ def build_parser() -> argparse.ArgumentParser:
     hp.add_argument("finding_id", type=int)
 
     rp = sub.add_parser("report")
-    rp.add_argument("--client", required=True)
+    rg = rp.add_mutually_exclusive_group(required=True)
+    rg.add_argument("--client")
+    rg.add_argument("--case", type=int)
     rp.add_argument("--format", choices=["md", "json"], default="md")
     rp.add_argument("--since", default=None)
     rp.add_argument("--all", action="store_true")
@@ -230,6 +233,16 @@ def _run_history(db, args) -> None:
 
 
 def _run_report(db, args) -> int:
+    if args.case is not None:
+        case = db.get_case(args.case)
+        if case is None:
+            print(f"no case #{args.case}", file=sys.stderr)
+            return 1
+        report = build_case_report(case, db.case_findings(args.case),
+                                   db.case_history(args.case), _now())
+        print(render_case_json(report) if args.format == "json"
+              else render_case_markdown(report))
+        return 0
     clients = load_clients("clients.toml")
     client = next((c for c in clients if c.get("name") == args.client), None)
     if client is None:

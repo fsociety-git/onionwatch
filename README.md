@@ -309,6 +309,24 @@ Cases appear as a **Cases** section in the per-client report:
 
 The report includes a **Cases** section with a one-line summary per case for that client — case id, state, title, and the number of findings assigned to it.
 
+### Single-case incident report
+
+Produce a full incident dossier for one case:
+
+    dwcollector report --case 42 [--format md|json]
+
+The report contains the case metadata (title, client, state, opened/closed
+timestamps, duration), a summary (finding counts by status, severity, kind, and
+disposition, plus distinct sites), every member finding in full (host, matched
+identifier, kind, severity, status, disposition, first/last seen, and the
+bounded evidence snippet), and the complete case timeline (every event —
+creation, assignments, state changes, and notes — with actor and timestamp).
+
+`--case` and `--client` are mutually exclusive; exactly one is required.
+`--all` and `--since` apply only to `--client` — a case report is already the
+analyst's curated set, so it renders every member finding unconditionally
+(remove a finding with `case unassign`, not a report flag).
+
 ## Run on host (uses your Tor on 127.0.0.1:9050)
 
 Set `socks_proxy = "socks5://127.0.0.1:9050"` in `config.toml`, then:

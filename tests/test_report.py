@@ -1,6 +1,7 @@
 import json
 from dwcollector.db import Database
 from dwcollector.report import client_findings, build_report, render_json, render_markdown
+from dwcollector.report import build_case_report, render_case_json, render_case_markdown
 
 CLIENT = {"name": "Acme", "terms": ["acme.com", "fuzzy:secret.com"]}
 
@@ -89,3 +90,121 @@ def test_report_includes_client_cases(tmp_path):
     assert json.loads(render_json(rep))["cases"][0]["case_id"] == cid
     md = render_markdown(rep)
     assert "Cases" in md and "Acme breach" in md
+
+
+def test_finding_entry_shared_shape_and_kind(tmp_path):
+    from dwcollector.report import _finding_entry
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    _leak(db, "acme.com", "leak:a")
+    f = db.get_finding("leak:a")
+    entry = _finding_entry(f)
+    assert entry == {
+        "host": "x.onion", "term": "acme.com", "kind": "leak",
+        "severity": "critical", "status": "open", "disposition": "new",
+        "first_seen": "2026-07-24T05:00:00", "last_seen": "2026-07-24T05:00:00",
+        "evidence": "ev-acme.com",
+    }
+
+
+def test_build_report_findings_gain_kind_key(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    _leak(db, "acme.com", "leak:a")
+    rep = build_report("Acme", client_findings(db, CLIENT, False, None),
+                       "2026-07-24T10:00:00", None)
+    entry = rep["findings"][0]
+    # all previously-existing keys still present, plus the additive kind
+    for k in ("host", "term", "severity", "status", "disposition",
+              "first_seen", "last_seen", "evidence"):
+        assert k in entry
+    assert entry["kind"] == "leak"
+
+
+def _mixed_case(tmp_path):
+    """A case with a false_positive critical leak and a high dead_original."""
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    cid = db.create_case("Acme breach", "Acme", "an@corp", "2026-07-24T00:00:00")
+    db.open_finding("leak", "leak:a", "http://a.onion/", "a.onion", "acme.com",
+                    "critical", "ev-a", "2026-07-24T01:00:00")
+    fa = db.get_finding("leak:a")["finding_id"]
+    db.set_disposition(fa, "false_positive", None, "an@corp", "2026-07-24T01:30:00")
+    db.open_finding("dead_original", "dead:b", "http://b.onion/", "b.onion", None,
+                    "high", None, "2026-07-24T02:00:00")
+    fb = db.get_finding("dead:b")["finding_id"]
+    db.assign_finding(fa, cid, "an@corp", "2026-07-24T03:00:00")
+    db.assign_finding(fb, cid, "an@corp", "2026-07-24T03:05:00")
+    return db, cid
+
+
+def test_build_case_report_metadata_and_summary(tmp_path):
+    db, cid = _mixed_case(tmp_path)
+    rep = build_case_report(db.get_case(cid), db.case_findings(cid),
+                            db.case_history(cid), "2026-07-26T00:00:00")
+    assert rep["case"]["case_id"] == cid
+    assert rep["case"]["title"] == "Acme breach"
+    assert rep["case"]["client"] == "Acme"
+    assert rep["case"]["state"] == "open"
+    assert rep["case"]["closed_at"] is None
+    assert rep["case"]["duration"].startswith("open ")     # created -> now, open
+    s = rep["summary"]
+    assert s["total"] == 2 and s["critical"] == 1 and s["high"] == 1
+    assert s["sites"] == 2
+    assert s["by_kind"] == {"leak": 1, "dead_original": 1}
+    assert s["by_disposition"] == {"false_positive": 1, "new": 1}
+
+
+def test_build_case_report_curated_includes_false_positive(tmp_path):
+    db, cid = _mixed_case(tmp_path)
+    rep = build_case_report(db.get_case(cid), db.case_findings(cid),
+                            db.case_history(cid), "2026-07-26T00:00:00")
+    # the false_positive member is NOT filtered out (curated, unfiltered)
+    assert any(f["disposition"] == "false_positive" for f in rep["findings"])
+    assert len(rep["findings"]) == 2
+
+
+def test_build_case_report_timeline_complete_and_ordered(tmp_path):
+    db, cid = _mixed_case(tmp_path)
+    rep = build_case_report(db.get_case(cid), db.case_findings(cid),
+                            db.case_history(cid), "2026-07-26T00:00:00")
+    events = [e["event"] for e in rep["timeline"]]
+    assert events[0] == "created"                          # oldest-first
+    assert "assigned finding #1" in events and "assigned finding #2" in events
+    # timeline carries actor + timestamp
+    assert all("at" in e and "actor" in e for e in rep["timeline"])
+
+
+def test_build_case_report_duration_closed(tmp_path):
+    db, cid = _mixed_case(tmp_path)
+    db.set_case_state(cid, "closed", None, "an@corp", "2026-07-24T04:00:00")
+    rep = build_case_report(db.get_case(cid), db.case_findings(cid),
+                            db.case_history(cid), "2026-07-30T00:00:00")
+    # created 00:00 -> closed 04:00 == 4h; must NOT be labeled open
+    assert rep["case"]["closed_at"] == "2026-07-24T04:00:00"
+    assert rep["case"]["duration"] == "4h"
+
+
+def test_duration_degrades_on_bad_timestamp(tmp_path):
+    from dwcollector.report import _duration
+    assert _duration(None, None, "2026-07-24T00:00:00") == ""
+    assert _duration("garbage", None, "2026-07-24T00:00:00") == ""
+
+
+def test_render_case_json_round_trips(tmp_path):
+    db, cid = _mixed_case(tmp_path)
+    rep = build_case_report(db.get_case(cid), db.case_findings(cid),
+                            db.case_history(cid), "2026-07-26T00:00:00")
+    doc = json.loads(render_case_json(rep))
+    assert doc["case"]["case_id"] == cid
+    assert doc["summary"]["total"] == 2
+    assert len(doc["timeline"]) == len(rep["timeline"])
+
+
+def test_render_case_markdown_contains_key_content(tmp_path):
+    db, cid = _mixed_case(tmp_path)
+    rep = build_case_report(db.get_case(cid), db.case_findings(cid),
+                            db.case_history(cid), "2026-07-26T00:00:00")
+    md = render_case_markdown(rep)
+    assert "# Incident Report: Acme breach" in md
+    assert f"case #{cid}" in md
+    assert "acme.com" in md and "a.onion" in md      # a member finding
+    assert "## Timeline" in md
+    assert "created" in md                            # a timeline event
