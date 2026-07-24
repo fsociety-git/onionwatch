@@ -64,13 +64,20 @@ CREATE TABLE IF NOT EXISTS findings (
     url TEXT, host TEXT, term TEXT,
     status TEXT, severity TEXT,
     first_seen TEXT, last_seen TEXT, resolved_at TEXT,
-    context_snippet TEXT
+    context_snippet TEXT,
+    disposition TEXT DEFAULT 'new', disposition_actor TEXT, disposition_at TEXT
 );
 CREATE TABLE IF NOT EXISTS alerts (
     alert_id INTEGER PRIMARY KEY AUTOINCREMENT,
     finding_id INTEGER, dedup_key TEXT,
     event TEXT, severity TEXT, title TEXT, body TEXT,
-    created_at TEXT, delivered INTEGER DEFAULT 0, delivery_error TEXT
+    created_at TEXT, delivered INTEGER DEFAULT 0, delivery_error TEXT,
+    suppressed INTEGER DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS disposition_log (
+    log_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    finding_id INTEGER,
+    disposition TEXT, note TEXT, actor TEXT, at TEXT
 );
 """
 
@@ -87,10 +94,14 @@ class Database:
 
     def init_schema(self) -> None:
         self.conn.executescript(SCHEMA)
-        # Idempotent migration for DBs created before match_kind/match_count.
+        # Idempotent migrations for DBs created before later columns (match_kind/match_count, disposition*, alerts.suppressed).
         for ddl in (
             "ALTER TABLE leak_hits ADD COLUMN match_kind TEXT DEFAULT 'literal'",
             "ALTER TABLE leak_hits ADD COLUMN match_count INTEGER DEFAULT 1",
+            "ALTER TABLE findings ADD COLUMN disposition TEXT DEFAULT 'new'",
+            "ALTER TABLE findings ADD COLUMN disposition_actor TEXT",
+            "ALTER TABLE findings ADD COLUMN disposition_at TEXT",
+            "ALTER TABLE alerts ADD COLUMN suppressed INTEGER DEFAULT 0",
         ):
             try:
                 self.conn.execute(ddl)
@@ -228,6 +239,11 @@ class Database:
         row = cur.fetchone()
         return dict(row) if row else None
 
+    def get_finding_by_id(self, finding_id) -> dict | None:
+        cur = self.conn.execute("SELECT * FROM findings WHERE finding_id = ?", (finding_id,))
+        row = cur.fetchone()
+        return dict(row) if row else None
+
     def open_finding(self, kind, dedup_key, url, host, term, severity,
                      context_snippet, now) -> None:
         self.conn.execute(
@@ -274,13 +290,13 @@ class Database:
         return [dict(r) for r in cur]
 
     def record_alert(self, finding_id, dedup_key, event, severity, title, body,
-                     created_at, delivered, delivery_error) -> int:
+                     created_at, delivered, delivery_error, suppressed=0) -> int:
         cur = self.conn.execute(
             "INSERT INTO alerts (finding_id, dedup_key, event, severity, title, "
-            "body, created_at, delivered, delivery_error) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "body, created_at, delivered, delivery_error, suppressed) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (finding_id, dedup_key, event, severity, title, body, created_at,
-             delivered, delivery_error))
+             delivered, delivery_error, suppressed))
         self.conn.commit()
         return cur.lastrowid
 
@@ -294,3 +310,34 @@ class Database:
         return [dict(r) for r in self.conn.execute(
             "SELECT * FROM urls WHERE cluster_id = ? AND url != ? AND alive = 1",
             (cluster_id, exclude_url))]
+
+    def set_disposition(self, finding_id, disposition, note, actor, now) -> None:
+        self.conn.execute(
+            "UPDATE findings SET disposition = ?, disposition_actor = ?, "
+            "disposition_at = ? WHERE finding_id = ?",
+            (disposition, actor, now, finding_id))
+        self.conn.execute(
+            "INSERT INTO disposition_log (finding_id, disposition, note, actor, at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (finding_id, disposition, note, actor, now))
+        self.conn.commit()
+
+    def add_note(self, finding_id, note, actor, now) -> None:
+        row = self.get_finding_by_id(finding_id)
+        if row is None:
+            return
+        self.conn.execute(
+            "INSERT INTO disposition_log (finding_id, disposition, note, actor, at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (finding_id, row.get("disposition"), note, actor, now))
+        self.conn.commit()
+
+    def triage_queue(self) -> list[dict]:
+        return [dict(r) for r in self.conn.execute(
+            "SELECT * FROM findings WHERE status = 'open' AND disposition = 'new' "
+            "ORDER BY CASE severity WHEN 'critical' THEN 0 ELSE 1 END, last_seen DESC")]
+
+    def disposition_history(self, finding_id) -> list[dict]:
+        return [dict(r) for r in self.conn.execute(
+            "SELECT * FROM disposition_log WHERE finding_id = ? ORDER BY log_id",
+            (finding_id,))]

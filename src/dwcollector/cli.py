@@ -51,6 +51,22 @@ def build_parser() -> argparse.ArgumentParser:
     ap = sub.add_parser("alerts")
     ap.add_argument("--status", choices=["open", "resolved", "all"], default="open")
 
+    sub.add_parser("triage")
+
+    dp = sub.add_parser("disposition")
+    dp.add_argument("finding_id", type=int)
+    dp.add_argument("value", choices=["new", "confirmed", "false_positive", "dismissed"])
+    dp.add_argument("--note", default=None)
+    dp.add_argument("--by", default=None)
+
+    npp = sub.add_parser("note")
+    npp.add_argument("finding_id", type=int)
+    npp.add_argument("--text", required=True)
+    npp.add_argument("--by", default=None)
+
+    hp = sub.add_parser("history")
+    hp.add_argument("finding_id", type=int)
+
     # Additional requirement: a 24/7 supervisor loop for continuous VM
     # operation. Repeats "crawl --resume" + "cluster" forever, sleeping
     # `--interval` seconds between cycles. Resumability comes for free from
@@ -148,9 +164,42 @@ def _run_alerts(db, args) -> None:
     for f in rows:
         when = f.get("resolved_at") or f.get("last_seen") or f.get("first_seen")
         term = f.get("term") or "-"
-        print(f"[{f['status']}] {f['severity']} {f['kind']} "
+        disp = f.get("disposition") or "new"
+        print(f"#{f['finding_id']} [{f['status']}/{disp}] {f['severity']} {f['kind']} "
               f"{term} @ {f['host']} ({when})")
     print(f"total: {len(rows)}")
+
+
+def _run_triage(db) -> None:
+    rows = db.triage_queue()
+    for f in rows:
+        print(f"#{f['finding_id']} [{f['severity']}] {f['kind']} "
+              f"{f.get('term') or '-'} @ {f['host']}")
+    print(f"queue: {len(rows)}")
+
+
+def _run_disposition(db, args) -> int:
+    if db.get_finding_by_id(args.finding_id) is None:
+        print(f"no finding #{args.finding_id}", file=sys.stderr)
+        return 1
+    db.set_disposition(args.finding_id, args.value, args.note, args.by, _now())
+    print(f"#{args.finding_id} -> {args.value}")
+    return 0
+
+
+def _run_note(db, args) -> int:
+    if db.get_finding_by_id(args.finding_id) is None:
+        print(f"no finding #{args.finding_id}", file=sys.stderr)
+        return 1
+    db.add_note(args.finding_id, args.text, args.by, _now())
+    print(f"note added to #{args.finding_id}")
+    return 0
+
+
+def _run_history(db, args) -> None:
+    for e in db.disposition_history(args.finding_id):
+        print(f"{e['at']} {e['disposition']} "
+              f"[{e.get('actor') or '-'}] {e.get('note') or ''}")
 
 
 def run_cycle(cfg, db, seeds_path: str = "seeds.txt",
@@ -313,6 +362,14 @@ def main(argv: list[str] | None = None) -> int:
         _run_stats(db)
     elif args.command == "alerts":
         _run_alerts(db, args)
+    elif args.command == "triage":
+        _run_triage(db)
+    elif args.command == "disposition":
+        return _run_disposition(db, args)
+    elif args.command == "note":
+        return _run_note(db, args)
+    elif args.command == "history":
+        _run_history(db, args)
     return 0
 
 

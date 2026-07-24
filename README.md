@@ -174,7 +174,65 @@ of the trust anchors.
     dwcollector alerts --status all           # both
 
 Each row shows the finding's status, severity, kind (leak/dead_original), term
-(if applicable), host, and timestamp.
+(if applicable), host, timestamp, and the analyst disposition.
+
+### Analyst triage & disposition
+
+Findings flow through both a machine state (`open`/`resolved`, the status in
+alerts logic) and an analyst disposition layer for human review and suppression.
+
+**Disposition values:**
+
+- **`new`** (default): finding just opened, awaiting triage.
+- **`confirmed`**: analyst reviewed and confirmed this is a real exposure.
+- **`false_positive`**: analyst reviewed and determined this is a false alarm
+  (e.g. legitimate exposure, test data, or misidentification).
+- **`dismissed`**: analyst reviewed but is deferring action (e.g. low priority,
+  duplicate, already known).
+
+Disposition is **analyst-owned**: only analysts set it (via the CLI commands
+below), and reconcilers never touch it. Critically, **disposition is sticky
+across the open/resolved lifecycle** — if you mark a finding `false_positive`
+when it's open and then it resolves and reopens later, it remains
+`false_positive` and stays suppressed.
+
+**Suppression:**
+
+Marking a finding `false_positive` or `dismissed` **suppresses all future
+alerts** for that finding (webhook + JSONL sink), recorded as a suppressed alert
+row in the database. Findings with disposition `new` or `confirmed` continue to
+alert normally. **Important:** the **first alert always fires** (a fresh finding
+is born `new` and not yet disposed); suppression only applies *after* you
+disposition it.
+
+**Triage queue:**
+
+    dwcollector triage
+
+Lists all open, un-triaged findings (those with `disposition = 'new'`), ordered
+by severity (critical first), then by last-seen timestamp (most recently seen first). Use this to find
+which findings need review.
+
+**Disposition commands:**
+
+Set disposition with an optional note and analyst actor:
+
+    dwcollector disposition <finding_id> <value> [--note "..."] [--by "analyst@corp"]
+
+Example:
+
+    dwcollector disposition 42 false_positive --note "Test data from staging" --by "alice@corp"
+
+Add a note to a finding without changing its disposition:
+
+    dwcollector note <finding_id> --text "Contact vendor re: remediation" [--by "bob@corp"]
+
+Review the full history of disposition changes and notes for a finding:
+
+    dwcollector history <finding_id>
+
+Outputs the timestamp, disposition (or note marker), actor, and comment for each
+log entry, in chronological order.
 
 ## Run on host (uses your Tor on 127.0.0.1:9050)
 

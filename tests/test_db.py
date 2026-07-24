@@ -204,3 +204,107 @@ def test_live_cluster_siblings(tmp_path):
     urls = {s["url"] for s in sibs}
     assert urls == {"http://sib-alive.onion/"}
     assert db.live_cluster_siblings(None, "http://anchor.onion/") == []
+
+
+def test_migration_adds_disposition_and_suppressed_columns(tmp_path):
+    import sqlite3
+    p = str(tmp_path / "legacy.db")
+    c = sqlite3.connect(p)
+    # legacy findings/alerts WITHOUT the new columns
+    c.execute("CREATE TABLE findings (finding_id INTEGER PRIMARY KEY AUTOINCREMENT, "
+              "kind TEXT, dedup_key TEXT UNIQUE, url TEXT, host TEXT, term TEXT, "
+              "status TEXT, severity TEXT, first_seen TEXT, last_seen TEXT, "
+              "resolved_at TEXT, context_snippet TEXT)")
+    c.execute("CREATE TABLE alerts (alert_id INTEGER PRIMARY KEY AUTOINCREMENT, "
+              "finding_id INTEGER, dedup_key TEXT, event TEXT, severity TEXT, "
+              "title TEXT, body TEXT, created_at TEXT, delivered INTEGER, delivery_error TEXT)")
+    c.commit(); c.close()
+    db = Database(p); db.init_schema()                       # must not raise
+    fcols = {r[1] for r in db.conn.execute("PRAGMA table_info(findings)")}
+    acols = {r[1] for r in db.conn.execute("PRAGMA table_info(alerts)")}
+    assert {"disposition", "disposition_actor", "disposition_at"} <= fcols
+    assert "suppressed" in acols
+    dl = {r[1] for r in db.conn.execute("PRAGMA table_info(disposition_log)")}
+    assert {"finding_id", "disposition", "note", "actor", "at"} <= dl
+
+
+def test_record_alert_stores_suppressed(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    db.record_alert(1, "k", "opened", "critical", "t", "b",
+                    "2026-07-24T00:00:00", 0, None, suppressed=1)
+    row = list(db.conn.execute("SELECT suppressed FROM alerts"))[0]
+    assert row[0] == 1
+
+
+def test_get_finding_by_id(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    db.open_finding("leak", "leak:u|t", "u", "h", "t", "critical", "s", "2026-07-24T00:00:00")
+    f = db.get_finding("leak:u|t")
+    assert db.get_finding_by_id(f["finding_id"])["dedup_key"] == "leak:u|t"
+    assert db.get_finding_by_id(99999) is None
+    # a fresh finding defaults to disposition 'new'
+    assert f["disposition"] == "new"
+
+
+def _mk_finding(db, dedup, sev="critical", now="2026-07-24T00:00:00"):
+    db.open_finding("leak", dedup, "u", "h", "t", sev, "s", now)
+    return db.get_finding(dedup)["finding_id"]
+
+
+def test_set_disposition_updates_finding_and_logs(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    fid = _mk_finding(db, "leak:u|t")
+    db.set_disposition(fid, "confirmed", "client billing DB", "alice", "2026-07-24T01:00:00")
+    f = db.get_finding_by_id(fid)
+    assert f["disposition"] == "confirmed" and f["disposition_actor"] == "alice"
+    hist = db.disposition_history(fid)
+    assert len(hist) == 1 and hist[0]["disposition"] == "confirmed"
+    assert hist[0]["note"] == "client billing DB"
+    db.set_disposition(fid, "dismissed", None, "bob", "2026-07-24T02:00:00")
+    assert db.get_finding_by_id(fid)["disposition"] == "dismissed"
+    assert len(db.disposition_history(fid)) == 2          # history grows
+
+
+def test_add_note_does_not_change_disposition(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    fid = _mk_finding(db, "leak:u|t")
+    db.set_disposition(fid, "confirmed", None, "alice", "2026-07-24T01:00:00")
+    db.add_note(fid, "still investigating", "alice", "2026-07-24T02:00:00")
+    assert db.get_finding_by_id(fid)["disposition"] == "confirmed"   # unchanged
+    hist = db.disposition_history(fid)
+    assert len(hist) == 2 and hist[-1]["note"] == "still investigating"
+    assert hist[-1]["disposition"] == "confirmed"         # note carries current disposition
+
+
+def test_triage_queue_open_new_severity_ordered(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    hi = _mk_finding(db, "leak:a|t", sev="high", now="2026-07-24T00:00:00")
+    crit = _mk_finding(db, "leak:b|t", sev="critical", now="2026-07-24T00:00:01")
+    done = _mk_finding(db, "leak:c|t", sev="critical")
+    db.set_disposition(done, "false_positive", None, None, "2026-07-24T03:00:00")  # drops out
+    db.resolve_finding("leak:a|t", "2026-07-24T04:00:00")   # 'hi' now resolved -> excluded
+    q = db.triage_queue()
+    ids = [f["finding_id"] for f in q]
+    assert ids == [crit]        # only open+new; critical first; resolved 'hi' and dispositioned 'done' excluded
+
+
+def test_triage_queue_orders_critical_before_high(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    crit = _mk_finding(db, "leak:a|t", sev="critical", now="2026-07-24T00:00:00")
+    hi = _mk_finding(db, "leak:b|t", sev="high", now="2026-07-24T00:00:01")
+    q = db.triage_queue()
+    ids = [f["finding_id"] for f in q]
+    # critical first despite being older; proves severity clause dominates recency (high is newer yet ranks second)
+    assert ids == [crit, hi]
+
+
+def test_disposition_sticky_across_reopen(tmp_path):
+    # A disposition survives the machine resolve->reopen lifecycle (reconcilers
+    # never touch it). Uses the raw finding methods that the reconcilers call.
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    fid = _mk_finding(db, "leak:u|t")
+    db.set_disposition(fid, "false_positive", None, None, "2026-07-24T01:00:00")
+    db.resolve_finding("leak:u|t", "2026-07-24T02:00:00")
+    db.reopen_finding("leak:u|t", "2026-07-24T03:00:00", "s")     # machine reopen
+    assert db.get_finding_by_id(fid)["disposition"] == "false_positive"
+    assert db.get_finding_by_id(fid)["status"] == "open"          # status did flip

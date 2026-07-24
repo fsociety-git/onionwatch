@@ -347,3 +347,59 @@ def test_run_crawl_passes_sources(tmp_path, monkeypatch):
     args = SimpleNamespace(resume=False, seeds=str(seeds_file))
     cli_mod._run_crawl(cfg, db, args)
     assert recorded["sources"] == src
+
+
+# --- Task 4: triage / disposition / note / history commands ---
+
+from dwcollector.cli import _run_triage, _run_disposition, _run_note, _run_history
+
+
+def _seed_finding(db, dedup="leak:http://x.onion/|acme.com", sev="critical"):
+    db.open_finding("leak", dedup, "http://x.onion/", "x.onion", "acme.com",
+                    sev, "…", "2026-07-24T00:00:00")
+    return db.get_finding(dedup)["finding_id"]
+
+
+def test_triage_and_disposition_flow(tmp_path, capsys):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    fid = _seed_finding(db)
+    _run_triage(db)
+    assert f"#{fid}" in capsys.readouterr().out              # in the queue
+
+    args = build_parser().parse_args(
+        ["disposition", str(fid), "false_positive", "--note", "test data", "--by", "alice"])
+    assert _run_disposition(db, args) == 0
+    assert db.get_finding_by_id(fid)["disposition"] == "false_positive"
+    capsys.readouterr()                                     # clear the "#id -> …" output
+
+    _run_triage(db)
+    assert f"#{fid}" not in capsys.readouterr().out          # dropped from queue after disposition
+
+    hargs = build_parser().parse_args(["history", str(fid)])
+    _run_history(db, hargs)
+    hout = capsys.readouterr().out
+    assert "false_positive" in hout and "test data" in hout and "alice" in hout
+
+
+def test_disposition_bad_id_errors(tmp_path, capsys):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    args = build_parser().parse_args(["disposition", "99999", "confirmed"])
+    assert _run_disposition(db, args) == 1                   # non-zero exit
+    assert "99999" in capsys.readouterr().err
+
+
+def test_note_command_appends(tmp_path, capsys):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    fid = _seed_finding(db)
+    args = build_parser().parse_args(["note", str(fid), "--text", "watching this"])
+    assert _run_note(db, args) == 0
+    assert any(e["note"] == "watching this" for e in db.disposition_history(fid))
+
+
+def test_alerts_command_shows_disposition(tmp_path, capsys):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    fid = _seed_finding(db)
+    db.set_disposition(fid, "confirmed", None, None, "2026-07-24T01:00:00")
+    args = build_parser().parse_args(["alerts", "--status", "open"])
+    _run_alerts(db, args)
+    assert "confirmed" in capsys.readouterr().out

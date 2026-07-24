@@ -7,6 +7,7 @@ import sys
 LEAK_SEVERITY = "critical"
 DEAD_SEVERITY = "high"
 ANCHOR_IDENTITY_SEVERITY = "high"
+SUPPRESSED_DISPOSITIONS = ("false_positive", "dismissed")
 
 
 def _post_webhook(cfg, payload) -> None:
@@ -65,6 +66,13 @@ def emit(db, cfg, finding: dict, event: str, now: str, post_fn=_post_webhook) ->
         "term": finding.get("term"), "title": title, "body": body,
         "created_at": now, "dedup_key": finding["dedup_key"],
     }
+    if finding.get("disposition") in SUPPRESSED_DISPOSITIONS:
+        try:
+            db.record_alert(finding.get("finding_id"), finding["dedup_key"], event,
+                            severity, title, body, now, 0, None, suppressed=1)
+        except Exception:  # noqa: BLE001 - best-effort audit; never crash the loop
+            pass
+        return payload
     delivered = 0
     error = None
     try:
