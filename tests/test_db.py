@@ -475,3 +475,56 @@ def test_case_id_survives_finding_lifecycle(tmp_path):
 
     # Verify case_id field still exists after all transitions
     assert db.get_finding_by_id(fid)["case_id"] is not None
+
+
+def _rec(price_value, currency, raw, text):
+    return {"price_value": price_value, "currency": currency,
+            "price_raw": raw, "product_text": text}
+
+
+def test_replace_listings_inserts_and_replaces(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    url = "http://m.onion/p"
+    db.replace_listings(url, "m.onion", [
+        _rec(0.05, "BTC", "0.05 BTC", "cocaine 0.05 BTC"),
+        _rec(50.0, "USD", "$50", "cvv $50"),
+    ], "2026-07-24T00:00:00")
+    assert len(db.list_listings(host="m.onion")) == 2
+    # second crawl replaces (no accumulation)
+    db.replace_listings(url, "m.onion", [
+        _rec(1.5, "XMR", "1.5 XMR", "ledger 1.5 XMR"),
+    ], "2026-07-24T01:00:00")
+    rows = db.list_listings(host="m.onion")
+    assert len(rows) == 1 and rows[0]["currency"] == "XMR"
+
+
+def test_replace_listings_empty_clears(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    url = "http://m.onion/p"
+    db.replace_listings(url, "m.onion", [_rec(50.0, "USD", "$50", "x")], "t0")
+    db.replace_listings(url, "m.onion", [], "t1")     # no prices this crawl
+    assert db.list_listings(host="m.onion") == []
+
+
+def test_list_listings_filters(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    db.replace_listings("http://a.onion/1", "a.onion", [
+        _rec(0.05, "BTC", "0.05 BTC", "cocaine grams"),
+        _rec(50.0, "USD", "$50", "cvv pack"),
+        _rec(None, "USD", "$1.2.3", "weird tag"),
+    ], "t0")
+    db.replace_listings("http://b.onion/1", "b.onion", [
+        _rec(200.0, "USD", "$200", "passport scan"),
+    ], "t0")
+    assert {r["host"] for r in db.list_listings(host="a.onion")} == {"a.onion"}
+    assert all(r["currency"] == "USD" for r in db.list_listings(currency="USD"))
+    # price range excludes NULL-price rows
+    usd_cheap = db.list_listings(currency="USD", min_price=10, max_price=100)
+    assert [r["price_raw"] for r in usd_cheap] == ["$50"]
+    assert [r["product_text"] for r in db.list_listings(contains="passport")] == ["passport scan"]
+
+
+def test_listings_migration_on_legacy_db(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    db.init_schema()   # idempotent second run must not raise
+    assert db.list_listings() == []

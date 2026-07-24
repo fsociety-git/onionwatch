@@ -416,6 +416,37 @@ unmapped-category pages, use `default` (0 if unset).
 With no `[crawl_priority]` table, every priority is 0 and the crawl order is
 unchanged — this feature is fully opt-in.
 
+## Market-listing extraction (optional)
+
+On marketplace pages, dwcollector can extract price-anchored **listing records**
+— a best-effort signal of what is being sold and at what price. It is off by
+default. Enable it in `config.toml`:
+
+    extract_listings   = true
+    listing_categories = ["marketplace"]   # which categories trigger extraction
+    listing_window     = 120               # chars of context captured per listing
+    max_listings_per_page = 200
+
+When a page whose category is in `listing_categories` is crawled, its visible
+text is scanned for prices in crypto (BTC, XMR) and major fiat (USD `$`, EUR
+`€`, GBP `£`). Each price becomes a record: the parsed amount, the currency, the
+raw matched token, and a bounded window of surrounding product text. Records are
+stored per URL as a **replace-per-crawl snapshot** (each crawl overwrites that
+page's listings with the current extraction — no history). No page bodies are
+stored, only the bounded context windows.
+
+Query them:
+
+    dwcollector listings [--host H] [--currency BTC] \
+                         [--min-price N] [--max-price N] \
+                         [--contains TEXT] [--format table|json]
+
+This is a **best-effort lead signal, not a clean catalog**: it will catch some
+non-listing prices (an escrow fee, a tip) and miss obfuscated or image-based
+prices. Prices are stored in their native currency — there is no FX conversion.
+With `extract_listings` off (the default), nothing is extracted and crawl
+behavior is unchanged.
+
 ## Tuning clone detection
 
 `cluster` groups URLs whose `content_simhash` values are within

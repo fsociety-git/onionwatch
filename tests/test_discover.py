@@ -378,3 +378,45 @@ async def test_crawl_no_priority_config_children_zero(tmp_path):
     row = db.conn.execute(
         "SELECT priority FROM frontier WHERE url=?", (B,)).fetchone()
     assert row["priority"] == 0                                      # unchanged BFS
+
+
+# --- Task 3: config fields + crawl integration for listing extraction ------
+
+@pytest.mark.asyncio
+async def test_crawl_extracts_listings_on_marketplace(tmp_path):
+    A = "http://aaaaaaaaaaaaaaaa.onion/"
+    pages = {A: "<html><body>market vendor escrow cocaine 0.05 BTC cvv $50</body></html>"}
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    cfg = Config(max_urls=5, concurrency=1, per_host_delay=0,
+                 extract_listings=True, listing_categories=["marketplace"])
+    rules = {"marketplace": ["market", "vendor", "escrow"]}
+    await crawl(cfg, db, FakeClient(pages), [A], "run_ext", "2026-07-24T00:00:00",
+                rules=rules)
+    rows = db.list_listings(host="aaaaaaaaaaaaaaaa.onion")
+    currencies = {r["currency"] for r in rows}
+    assert "BTC" in currencies and "USD" in currencies
+
+
+@pytest.mark.asyncio
+async def test_crawl_no_extraction_when_flag_off(tmp_path):
+    A = "http://aaaaaaaaaaaaaaaa.onion/"
+    pages = {A: "<html><body>market vendor cocaine 0.05 BTC</body></html>"}
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    cfg = Config(max_urls=5, concurrency=1, per_host_delay=0)   # extract_listings defaults False
+    rules = {"marketplace": ["market", "vendor"]}
+    await crawl(cfg, db, FakeClient(pages), [A], "run_off", "2026-07-24T00:00:00",
+                rules=rules)
+    assert db.list_listings() == []
+
+
+@pytest.mark.asyncio
+async def test_crawl_no_extraction_on_non_listing_category(tmp_path):
+    A = "http://aaaaaaaaaaaaaaaa.onion/"
+    pages = {A: "<html><body>forum board discussion price 0.05 BTC</body></html>"}
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    cfg = Config(max_urls=5, concurrency=1, per_host_delay=0,
+                 extract_listings=True, listing_categories=["marketplace"])
+    rules = {"forum": ["forum", "board"]}   # page categorizes as forum, not marketplace
+    await crawl(cfg, db, FakeClient(pages), [A], "run_forum", "2026-07-24T00:00:00",
+                rules=rules)
+    assert db.list_listings() == []

@@ -620,3 +620,39 @@ def test_report_command_shows_cases(tmp_path, capsys, monkeypatch):
     _run_report(db, build_parser().parse_args(["report", "--client", "Acme", "--format", "json"]))
     doc = json.loads(capsys.readouterr().out)
     assert doc["cases"][0]["title"] == "Acme breach"
+
+
+# --- Task 4: listings CLI command ---
+
+def test_listings_command_json_and_filters(tmp_path, capsys):
+    import json as _json
+    from dwcollector.cli import build_parser, _run_listings
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    db.replace_listings("http://a.onion/1", "a.onion", [
+        {"price_value": 0.05, "currency": "BTC", "price_raw": "0.05 BTC", "product_text": "cocaine grams"},
+        {"price_value": 50.0, "currency": "USD", "price_raw": "$50", "product_text": "cvv pack"},
+    ], "2026-07-24T00:00:00")
+
+    # JSON, all
+    _run_listings(db, build_parser().parse_args(["listings", "--format", "json"]))
+    doc = _json.loads(capsys.readouterr().out)
+    assert len(doc) == 2
+
+    # currency filter is upper-cased
+    _run_listings(db, build_parser().parse_args(["listings", "--currency", "usd", "--format", "json"]))
+    doc = _json.loads(capsys.readouterr().out)
+    assert len(doc) == 1 and doc[0]["currency"] == "USD"
+
+    # contains filter
+    _run_listings(db, build_parser().parse_args(["listings", "--contains", "cocaine", "--format", "json"]))
+    doc = _json.loads(capsys.readouterr().out)
+    assert len(doc) == 1 and doc[0]["product_text"] == "cocaine grams"
+
+
+def test_listings_command_empty_ok(tmp_path, capsys):
+    from dwcollector.cli import build_parser, _run_listings
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    # table format, no rows -> valid output, no crash
+    _run_listings(db, build_parser().parse_args(["listings"]))
+    out = capsys.readouterr().out
+    assert "total: 0" in out
