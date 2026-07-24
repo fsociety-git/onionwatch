@@ -10,6 +10,7 @@ from selectolax.parser import HTMLParser
 from .tor_client import FetchResult  # re-export for tests/typing
 from .fingerprint import simhash, to_hex
 from .categorize import categorize
+from .config import priority_for
 from .probe import extract_title
 
 _ONION_RE = re.compile(r"\b([a-z2-7]{16}|[a-z2-7]{56})\.onion\b", re.IGNORECASE)
@@ -88,12 +89,13 @@ async def crawl(config, db, client, seeds, run_id, now, rules=None, sources=None
     # crawler process at a time -- there is no concurrently-running crawl
     # whose legitimately-in-flight rows this could steal.
     db.reset_state("in_progress", "pending")
+    seed_priority = config.crawl_priority.get("default", 0)
 
     if sources:
         from .sources import harvest          # lazy: sources.py imports from discover
         for url, name in await harvest(client, sources, config.max_seeds_per_source, delay=config.per_host_delay):
             db.upsert_url(url, onion_host(url) or "", name, 0, now)
-            db.enqueue(url, 0)
+            db.enqueue(url, 0, seed_priority)
 
     db.start_run(run_id, now, len(seeds))
     for s in seeds:
@@ -101,7 +103,7 @@ async def crawl(config, db, client, seeds, run_id, now, rules=None, sources=None
         # Upsert now (not only after a successful fetch) so a seed that gets
         # skipped by the per-host cap on its first attempt still has a row.
         db.upsert_url(seed_url, onion_host(seed_url) or "", "seed", 0, now)
-        db.enqueue(seed_url, 0)
+        db.enqueue(seed_url, 0, seed_priority)
     host_pages: dict[str, int] = defaultdict(int)
     processed = 0
     alive = 0
@@ -148,12 +150,13 @@ async def crawl(config, db, client, seeds, run_id, now, rules=None, sources=None
                     matched_terms=json.dumps(cat.matched_terms),
                     pgp_fingerprint=pgp_fingerprint_in_page(text),
                 )
+                child_priority = priority_for(cat.category, config.crawl_priority)
                 if config.max_depth == 0 or depth < config.max_depth:
                     for link in extract_onion_links(res.html, url):
                         if db.get_url(link) is None:
                             db.upsert_url(link, onion_host(link) or "", "crawled",
                                           depth + 1, now)
-                            db.enqueue(link, depth + 1)
+                            db.enqueue(link, depth + 1, child_priority)
             else:
                 db.upsert_url(url, host or "", "crawled", depth, now)
                 db.update_url(url, alive=0, http_status=res.status, last_checked=now)

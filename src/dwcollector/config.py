@@ -24,6 +24,7 @@ class Config:
     alert_webhook: str = ""          # empty = webhook disabled
     pii_detectors: list[str] = field(default_factory=list)
     max_seeds_per_source: int = 200
+    crawl_priority: dict = field(default_factory=dict)
 
 def _read_toml(path: str) -> dict:
     with open(path, "rb") as fh:
@@ -46,7 +47,16 @@ def load_config(path: str = "config.toml") -> Config:
             print(f"config: ignoring unknown pii_detectors: {', '.join(unknown)}",
                   file=sys.stderr)
         cfg.pii_detectors = [d for d in cfg.pii_detectors if d in valid]
+    if cfg.crawl_priority:
+        non_int_keys = [k for k, v in cfg.crawl_priority.items() if type(v) is not int]
+        if non_int_keys:
+            print(f"config: ignoring non-integer crawl_priority weight(s): {', '.join(sorted(non_int_keys))}",
+                  file=sys.stderr)
+            cfg.crawl_priority = {k: v for k, v in cfg.crawl_priority.items() if type(v) is int}
     return cfg
+
+def priority_for(category: str, weights: dict) -> int:
+    return int(weights.get(category, weights.get("default", 0)))
 
 def load_categories(path: str = "categories.toml") -> dict[str, list[str]]:
     return {k: list(v) for k, v in _read_toml(path).items()}

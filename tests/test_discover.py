@@ -328,3 +328,53 @@ async def test_crawl_no_sources_unchanged(tmp_path):
     cfg = Config(max_urls=0, time_budget_min=60, per_host_delay=0)
     await crawl(cfg, db, client, [], "run1", "2026-07-23T00:00:00", rules={}, sources=None)
     assert db.all_urls() == []                    # nothing harvested
+
+
+# --- Task 3: propagate parent-category priority into the crawl frontier ----
+
+@pytest.mark.asyncio
+async def test_crawl_child_inherits_parent_category_priority(tmp_path):
+    A = "http://aaaaaaaaaaaaaaaa.onion/"
+    B = "http://bbbbbbbbbbbbbbbb.onion/"
+    # A categorizes as marketplace; it links B
+    pages = {A: f'<html><title>Shop</title><body>market vendor escrow '
+                f'<a href="{B}">b</a></body></html>'}
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    cfg = Config(max_urls=1, concurrency=1, per_host_delay=0,        # fetch A only
+                 crawl_priority={"marketplace": 100})
+    rules = {"marketplace": ["market", "vendor", "escrow"]}
+    await crawl(cfg, db, FakeClient(pages), [A], "run_pri", "2026-07-24T00:00:00",
+                rules=rules)
+    # B is still pending (A was the only fetch) and carries the parent's weight
+    row = db.conn.execute(
+        "SELECT state, priority FROM frontier WHERE url=?", (B,)).fetchone()
+    assert row["state"] == "pending"
+    assert row["priority"] == 100
+
+
+@pytest.mark.asyncio
+async def test_crawl_seed_uses_default_priority(tmp_path):
+    A = "http://aaaaaaaaaaaaaaaa.onion/"
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    cfg = Config(max_urls=0, concurrency=1, per_host_delay=0,        # don't drain
+                 crawl_priority={"default": 7})
+    await crawl(cfg, db, FakeClient({A: ""}), [A], "run_seed", "2026-07-24T00:00:00",
+                rules={})
+    row = db.conn.execute(
+        "SELECT priority FROM frontier WHERE url=?", (A,)).fetchone()
+    assert row["priority"] == 7
+
+
+@pytest.mark.asyncio
+async def test_crawl_no_priority_config_children_zero(tmp_path):
+    A = "http://aaaaaaaaaaaaaaaa.onion/"
+    B = "http://bbbbbbbbbbbbbbbb.onion/"
+    pages = {A: f'<html><body>market vendor <a href="{B}">b</a></body></html>'}
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    cfg = Config(max_urls=1, concurrency=1, per_host_delay=0)        # no crawl_priority
+    rules = {"marketplace": ["market", "vendor"]}
+    await crawl(cfg, db, FakeClient(pages), [A], "run_zero", "2026-07-24T00:00:00",
+                rules=rules)
+    row = db.conn.execute(
+        "SELECT priority FROM frontier WHERE url=?", (B,)).fetchone()
+    assert row["priority"] == 0                                      # unchanged BFS

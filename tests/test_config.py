@@ -140,3 +140,68 @@ def test_load_clients_parses_and_skips_malformed(tmp_path, capsys):
     cs = load_clients(str(p))
     assert [c["name"] for c in cs] == ["Acme Corp"]
     assert "Beta" in capsys.readouterr().err
+
+
+def test_load_config_crawl_priority(tmp_path):
+    from dwcollector.config import load_config
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text(
+        "concurrency = 8\n"
+        "\n"
+        "[crawl_priority]\n"
+        "default = 0\n"
+        "market = 100\n"
+        "forum = 80\n"
+    )
+    cfg = load_config(str(cfg_file))
+    assert cfg.crawl_priority == {"default": 0, "market": 100, "forum": 80}
+
+
+def test_load_config_crawl_priority_absent_is_empty(tmp_path):
+    from dwcollector.config import load_config
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text("concurrency = 8\n")
+    cfg = load_config(str(cfg_file))
+    assert cfg.crawl_priority == {}
+
+
+def test_priority_for_mapped_unmapped_and_default():
+    from dwcollector.config import priority_for
+    weights = {"default": 5, "market": 100}
+    assert priority_for("market", weights) == 100     # mapped
+    assert priority_for("forum", weights) == 5        # unmapped -> default
+    assert priority_for("unknown", weights) == 5      # unknown -> default
+    assert priority_for("market", {}) == 0            # no default -> 0
+    assert priority_for("anything", {}) == 0
+
+
+def test_crawl_priority_drops_non_integer_weights(tmp_path, capsys):
+    from dwcollector.config import load_config
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text(
+        "concurrency = 8\n"
+        "\n"
+        "[crawl_priority]\n"
+        "market = 100\n"
+        'forum = "high"\n'
+    )
+    cfg = load_config(str(cfg_file))
+    assert cfg.crawl_priority == {"market": 100}
+    err = capsys.readouterr().err
+    assert "forum" in err
+
+
+def test_crawl_priority_all_integers_no_warning(tmp_path, capsys):
+    from dwcollector.config import load_config
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text(
+        "concurrency = 8\n"
+        "\n"
+        "[crawl_priority]\n"
+        "market = 100\n"
+        "forum = 80\n"
+    )
+    cfg = load_config(str(cfg_file))
+    assert cfg.crawl_priority == {"market": 100, "forum": 80}
+    err = capsys.readouterr().err
+    assert "crawl_priority" not in err
