@@ -379,3 +379,45 @@ class Database:
         if conds:
             q += " WHERE " + " AND ".join(conds)
         return [dict(r) for r in self.conn.execute(q + " ORDER BY case_id DESC", params)]
+
+    def _case_log(self, case_id, event, note, actor, now) -> None:
+        self.conn.execute(
+            "INSERT INTO case_log (case_id, event, note, actor, at) VALUES (?, ?, ?, ?, ?)",
+            (case_id, event, note, actor, now))
+
+    def assign_finding(self, finding_id, case_id, actor, now) -> None:
+        self.conn.execute("UPDATE findings SET case_id = ? WHERE finding_id = ?",
+                          (case_id, finding_id))
+        self._case_log(case_id, f"assigned finding #{finding_id}", None, actor, now)
+        self.conn.commit()
+
+    def unassign_finding(self, finding_id, actor, now) -> None:
+        row = self.get_finding_by_id(finding_id)
+        if row is None or row.get("case_id") is None:
+            return
+        cid = row["case_id"]
+        self.conn.execute("UPDATE findings SET case_id = NULL WHERE finding_id = ?",
+                          (finding_id,))
+        self._case_log(cid, f"unassigned finding #{finding_id}", None, actor, now)
+        self.conn.commit()
+
+    def set_case_state(self, case_id, state, note, actor, now) -> None:
+        closed_at = now if state == "closed" else None
+        self.conn.execute("UPDATE cases SET state = ?, closed_at = ? WHERE case_id = ?",
+                          (state, closed_at, case_id))
+        self._case_log(case_id, f"state: {state}", note, actor, now)
+        self.conn.commit()
+
+    def add_case_note(self, case_id, note, actor, now) -> None:
+        self._case_log(case_id, "note", note, actor, now)
+        self.conn.commit()
+
+    def case_findings(self, case_id) -> list[dict]:
+        return [dict(r) for r in self.conn.execute(
+            "SELECT * FROM findings WHERE case_id = ? "
+            "ORDER BY CASE severity WHEN 'critical' THEN 0 ELSE 1 END, last_seen DESC",
+            (case_id,))]
+
+    def case_history(self, case_id) -> list[dict]:
+        return [dict(r) for r in self.conn.execute(
+            "SELECT * FROM case_log WHERE case_id = ? ORDER BY log_id", (case_id,))]

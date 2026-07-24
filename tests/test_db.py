@@ -342,3 +342,44 @@ def test_create_case_and_list(tmp_path):
     db.create_case("Internal", None, None, "2026-07-24T01:00:00")
     assert {c["title"] for c in db.list_cases(client="Acme Corp")} == {"Acme billing breach"}
     assert len(db.list_cases()) == 2
+
+
+def _case_finding(db, dedup, sev="critical"):
+    db.open_finding("leak", dedup, "http://x.onion/", "x.onion", "t", sev, "ev",
+                    "2026-07-24T00:00:00")
+    return db.get_finding(dedup)["finding_id"]
+
+
+def test_assign_unassign_finding(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    cid = db.create_case("C", None, None, "2026-07-24T00:00:00")
+    fid = _case_finding(db, "leak:a")
+    db.assign_finding(fid, cid, "alice", "2026-07-24T01:00:00")
+    assert db.get_finding_by_id(fid)["case_id"] == cid
+    assert [f["finding_id"] for f in db.case_findings(cid)] == [fid]
+    assert any("assigned finding" in e["event"] for e in db.case_history(cid))
+    db.unassign_finding(fid, "alice", "2026-07-24T02:00:00")
+    assert db.get_finding_by_id(fid)["case_id"] is None
+    assert db.case_findings(cid) == []
+    assert any("unassigned finding" in e["event"] for e in db.case_history(cid))
+    # unassign a finding with no case -> no-op, no raise, no new log
+    n = len(db.case_history(cid))
+    db.unassign_finding(fid, None, "2026-07-24T03:00:00")
+    assert len(db.case_history(cid)) == n
+
+
+def test_set_case_state_and_note(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    cid = db.create_case("C", None, None, "2026-07-24T00:00:00")
+    db.set_case_state(cid, "investigating", "on it", "alice", "2026-07-24T01:00:00")
+    assert db.get_case(cid)["state"] == "investigating"
+    assert db.get_case(cid)["closed_at"] is None
+    db.set_case_state(cid, "closed", None, "alice", "2026-07-24T02:00:00")
+    assert db.get_case(cid)["state"] == "closed"
+    assert db.get_case(cid)["closed_at"] == "2026-07-24T02:00:00"
+    db.set_case_state(cid, "open", None, "alice", "2026-07-24T03:00:00")   # reopen clears closed_at
+    assert db.get_case(cid)["closed_at"] is None
+    db.add_case_note(cid, "a comment", "bob", "2026-07-24T04:00:00")
+    hist = db.case_history(cid)
+    assert any(e["event"] == "note" and e["note"] == "a comment" for e in hist)
+    assert any(e["event"] == "state: closed" for e in hist)
