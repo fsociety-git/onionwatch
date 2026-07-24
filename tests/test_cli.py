@@ -527,3 +527,20 @@ def test_case_list_and_note(tmp_path, capsys):
     assert "One" in lst and "Two" not in lst
     assert _run_case(db, build_parser().parse_args(["case", "note", "1", "--text", "hi"])) == 0
     assert any(e["note"] == "hi" for e in db.case_history(1))
+
+
+def test_report_command_shows_cases(tmp_path, capsys, monkeypatch):
+    import dwcollector.cli as cli_mod
+    from dwcollector.cli import build_parser, _run_report
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    db.open_finding("leak", "leak:http://x.onion/|acme.com", "http://x.onion/",
+                    "x.onion", "acme.com", "critical", "ev", "2026-07-24T00:00:00")
+    cid = db.create_case("Acme breach", "Acme", None, "2026-07-24T00:00:00")
+    db.assign_finding(db.get_finding("leak:http://x.onion/|acme.com")["finding_id"],
+                      cid, None, "2026-07-24T01:00:00")
+    monkeypatch.setattr(cli_mod, "load_clients",
+                        lambda p: [{"name": "Acme", "terms": ["acme.com"]}])
+    import json
+    _run_report(db, build_parser().parse_args(["report", "--client", "Acme", "--format", "json"]))
+    doc = json.loads(capsys.readouterr().out)
+    assert doc["cases"][0]["title"] == "Acme breach"

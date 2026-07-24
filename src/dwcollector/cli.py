@@ -19,7 +19,8 @@ from .categorize import categorize
 from .cluster import run_clustering
 from .hunt import hunt, load_terms
 from .alerts import reconcile_leaks, reconcile_dead_originals, reconcile_anchor_identity
-from .report import client_findings, build_report, render_json, render_markdown
+from .report import (client_findings, build_report, render_json, render_markdown,
+                     client_cases)
 
 
 def _now() -> str:
@@ -235,7 +236,8 @@ def _run_report(db, args) -> int:
         print(f"unknown client: {args.client!r}", file=sys.stderr)
         return 1
     findings = client_findings(db, client, args.all, args.since)
-    report = build_report(args.client, findings, _now(), args.since)
+    cases = client_cases(db, args.client)
+    report = build_report(args.client, findings, _now(), args.since, cases=cases)
     print(render_json(report) if args.format == "json" else render_markdown(report))
     return 0
 
