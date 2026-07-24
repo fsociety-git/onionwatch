@@ -499,6 +499,30 @@ def test_report_case_command(tmp_path, capsys):
     assert "99999" in capsys.readouterr().err
 
 
+def test_report_case_empty_dossier(tmp_path, capsys):
+    import json as _json
+    from dwcollector.cli import build_parser, _run_report
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+
+    # Create a case with NO findings assigned
+    cid = db.create_case("Empty case", "Acme", "an@corp", "2026-07-24T00:00:00")
+
+    # JSON format: zero counts, exit 0
+    assert _run_report(db, build_parser().parse_args(
+        ["report", "--case", str(cid), "--format", "json"])) == 0
+    doc = _json.loads(capsys.readouterr().out)
+    assert doc["summary"]["total"] == 0
+    assert doc["case"]["case_id"] == cid
+    assert len(doc["timeline"]) > 0  # at least the "created" event
+
+    # Markdown format: exit 0, contains case id and empty-findings placeholder
+    assert _run_report(db, build_parser().parse_args(
+        ["report", "--case", str(cid)])) == 0
+    md = capsys.readouterr().out
+    assert f"case #{cid}" in md
+    assert "_No findings in this case._" in md
+
+
 def test_report_requires_exactly_one_target():
     import pytest
     from dwcollector.cli import build_parser
