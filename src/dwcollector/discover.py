@@ -11,6 +11,7 @@ from .tor_client import FetchResult  # re-export for tests/typing
 from .fingerprint import simhash, to_hex
 from .categorize import categorize
 from .config import priority_for
+from .extract import extract_listings
 from .probe import extract_title
 
 _ONION_RE = re.compile(r"\b([a-z2-7]{16}|[a-z2-7]{56})\.onion\b", re.IGNORECASE)
@@ -150,6 +151,10 @@ async def crawl(config, db, client, seeds, run_id, now, rules=None, sources=None
                     matched_terms=json.dumps(cat.matched_terms),
                     pgp_fingerprint=pgp_fingerprint_in_page(text),
                 )
+                if config.extract_listings and cat.category in config.listing_categories:
+                    db.replace_listings(url, host or "",
+                        extract_listings(text, window=config.listing_window,
+                                         max_listings=config.max_listings_per_page), now)
                 child_priority = priority_for(cat.category, config.crawl_priority)
                 if config.max_depth == 0 or depth < config.max_depth:
                     for link in extract_onion_links(res.html, url):

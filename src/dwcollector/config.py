@@ -25,6 +25,10 @@ class Config:
     pii_detectors: list[str] = field(default_factory=list)
     max_seeds_per_source: int = 200
     crawl_priority: dict = field(default_factory=dict)
+    extract_listings: bool = False
+    listing_categories: list[str] = field(default_factory=lambda: ["marketplace"])
+    listing_window: int = 120
+    max_listings_per_page: int = 200
 
 def _read_toml(path: str) -> dict:
     with open(path, "rb") as fh:
