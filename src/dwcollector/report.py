@@ -1,8 +1,10 @@
 from __future__ import annotations
 import json
+from datetime import datetime
 from .matching import underlying_key
 
 _DISMISSED = ("false_positive", "dismissed")
+_TS = "%Y-%m-%dT%H:%M:%S"
 
 
 def _finding_entry(f: dict) -> dict:
@@ -12,6 +14,79 @@ def _finding_entry(f: dict) -> dict:
         "disposition": f.get("disposition") or "new",
         "first_seen": f.get("first_seen"), "last_seen": f.get("last_seen"),
         "evidence": f.get("context_snippet") or "",
+    }
+
+
+def _fmt_delta(td) -> str:
+    total = max(0, int(td.total_seconds()))
+    days, rem = divmod(total, 86400)
+    hours, rem = divmod(rem, 3600)
+    mins = rem // 60
+    parts = []
+    if days:
+        parts.append(f"{days}d")
+    if hours:
+        parts.append(f"{hours}h")
+    if not parts:
+        parts.append(f"{mins}m")
+    return " ".join(parts)
+
+
+def _parse_ts(s):
+    try:
+        return datetime.strptime(s, _TS)
+    except (TypeError, ValueError):
+        return None
+
+
+def _duration(created_at, closed_at, now) -> str:
+    start = _parse_ts(created_at)
+    if start is None:
+        return ""
+    if closed_at:
+        end = _parse_ts(closed_at)
+        return _fmt_delta(end - start) if end else ""
+    end = _parse_ts(now)
+    return "open " + _fmt_delta(end - start) if end else ""
+
+
+def _count_by(findings, key) -> dict:
+    fn = key if callable(key) else (lambda f: f.get(key))
+    out = {}
+    for f in findings:
+        k = fn(f)
+        out[k] = out.get(k, 0) + 1
+    return out
+
+
+def build_case_report(case: dict, findings: list[dict],
+                      history: list[dict], now: str) -> dict:
+    summary = {
+        "total": len(findings),
+        "open": sum(1 for f in findings if f.get("status") == "open"),
+        "resolved": sum(1 for f in findings if f.get("status") == "resolved"),
+        "critical": sum(1 for f in findings if f.get("severity") == "critical"),
+        "high": sum(1 for f in findings if f.get("severity") == "high"),
+        "by_kind": _count_by(findings, "kind"),
+        "by_disposition": _count_by(findings, lambda f: f.get("disposition") or "new"),
+        "sites": len({f.get("host") for f in findings}),
+    }
+    return {
+        "case": {
+            "case_id": case["case_id"], "title": case["title"],
+            "client": case.get("client"), "state": case["state"],
+            "created_at": case.get("created_at"),
+            "created_by": case.get("created_by"),
+            "closed_at": case.get("closed_at"),
+            "duration": _duration(case.get("created_at"),
+                                  case.get("closed_at"), now),
+        },
+        "generated_at": now,
+        "summary": summary,
+        "findings": [_finding_entry(f) for f in findings],
+        "timeline": [{"at": h.get("at"), "actor": h.get("actor"),
+                      "event": h.get("event"), "note": h.get("note")}
+                     for h in history],
     }
 
 
