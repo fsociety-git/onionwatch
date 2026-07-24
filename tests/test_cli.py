@@ -656,3 +656,44 @@ def test_listings_command_empty_ok(tmp_path, capsys):
     _run_listings(db, build_parser().parse_args(["listings"]))
     out = capsys.readouterr().out
     assert "total: 0" in out
+
+
+def test_run_cycle_creates_market_listing_findings(tmp_path, monkeypatch):
+    import dwcollector.cli as cli_mod
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    db.replace_listings("http://m.onion/1", "m.onion", [
+        {"price_value": 0.05, "currency": "BTC", "price_raw": "0.05 BTC",
+         "product_text": "acme.com dump 0.05 BTC"}], "2026-07-24T00:00:00")
+    wl = tmp_path / "wl.txt"; wl.write_text("acme.com\n")
+    cfg = Config(watchlist_terms=str(wl), alerts_path=str(tmp_path / "a.jsonl"),
+                 extract_listings=True)
+    monkeypatch.setattr(cli_mod, "load_verified_sources",
+                        lambda path: {"verified_onions": [], "pgp": {}, "directories": []})
+    res = run_cycle(
+        cfg, db, seeds_path=str(tmp_path / "seeds.txt"),
+        crawl_fn=lambda *a, **k: SimpleNamespace(discovered=0, alive=0, stop_reason="ok"),
+        cluster_fn=lambda *a, **k: 0,
+        client_factory=lambda cfg: _StubClient("<html></html>"))
+    assert res["ok"] is True
+    fs = db.list_findings("open")
+    assert any(f["kind"] == "market_listing" and f["term"] == "acme.com"
+               and f["severity"] == "high" for f in fs)
+
+
+def test_run_cycle_no_listing_findings_when_extract_off(tmp_path, monkeypatch):
+    import dwcollector.cli as cli_mod
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    db.replace_listings("http://m.onion/1", "m.onion", [
+        {"price_value": 0.05, "currency": "BTC", "price_raw": "0.05 BTC",
+         "product_text": "acme.com dump"}], "2026-07-24T00:00:00")
+    wl = tmp_path / "wl.txt"; wl.write_text("acme.com\n")
+    cfg = Config(watchlist_terms=str(wl), alerts_path=str(tmp_path / "a.jsonl"),
+                 extract_listings=False)          # gate off
+    monkeypatch.setattr(cli_mod, "load_verified_sources",
+                        lambda path: {"verified_onions": [], "pgp": {}, "directories": []})
+    run_cycle(
+        cfg, db, seeds_path=str(tmp_path / "seeds.txt"),
+        crawl_fn=lambda *a, **k: SimpleNamespace(discovered=0, alive=0, stop_reason="ok"),
+        cluster_fn=lambda *a, **k: 0,
+        client_factory=lambda cfg: _StubClient("<html></html>"))
+    assert not any(f["kind"] == "market_listing" for f in db.list_findings("open"))
