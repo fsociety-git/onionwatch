@@ -173,3 +173,35 @@ def test_priority_for_mapped_unmapped_and_default():
     assert priority_for("unknown", weights) == 5      # unknown -> default
     assert priority_for("market", {}) == 0            # no default -> 0
     assert priority_for("anything", {}) == 0
+
+
+def test_crawl_priority_drops_non_integer_weights(tmp_path, capsys):
+    from dwcollector.config import load_config
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text(
+        "concurrency = 8\n"
+        "\n"
+        "[crawl_priority]\n"
+        "market = 100\n"
+        'forum = "high"\n'
+    )
+    cfg = load_config(str(cfg_file))
+    assert cfg.crawl_priority == {"market": 100}
+    err = capsys.readouterr().err
+    assert "forum" in err
+
+
+def test_crawl_priority_all_integers_no_warning(tmp_path, capsys):
+    from dwcollector.config import load_config
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text(
+        "concurrency = 8\n"
+        "\n"
+        "[crawl_priority]\n"
+        "market = 100\n"
+        "forum = 80\n"
+    )
+    cfg = load_config(str(cfg_file))
+    assert cfg.crawl_priority == {"market": 100, "forum": 80}
+    err = capsys.readouterr().err
+    assert "crawl_priority" not in err

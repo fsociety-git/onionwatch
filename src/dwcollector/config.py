@@ -47,6 +47,12 @@ def load_config(path: str = "config.toml") -> Config:
             print(f"config: ignoring unknown pii_detectors: {', '.join(unknown)}",
                   file=sys.stderr)
         cfg.pii_detectors = [d for d in cfg.pii_detectors if d in valid]
+    if cfg.crawl_priority:
+        non_int_keys = [k for k, v in cfg.crawl_priority.items() if type(v) is not int]
+        if non_int_keys:
+            print(f"config: ignoring non-integer crawl_priority weight(s): {', '.join(sorted(non_int_keys))}",
+                  file=sys.stderr)
+            cfg.crawl_priority = {k: v for k, v in cfg.crawl_priority.items() if type(v) is int}
     return cfg
 
 def priority_for(category: str, weights: dict) -> int:
