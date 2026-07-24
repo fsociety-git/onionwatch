@@ -65,7 +65,8 @@ CREATE TABLE IF NOT EXISTS findings (
     status TEXT, severity TEXT,
     first_seen TEXT, last_seen TEXT, resolved_at TEXT,
     context_snippet TEXT,
-    disposition TEXT DEFAULT 'new', disposition_actor TEXT, disposition_at TEXT
+    disposition TEXT DEFAULT 'new', disposition_actor TEXT, disposition_at TEXT,
+    case_id INTEGER
 );
 CREATE TABLE IF NOT EXISTS alerts (
     alert_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -78,6 +79,16 @@ CREATE TABLE IF NOT EXISTS disposition_log (
     log_id INTEGER PRIMARY KEY AUTOINCREMENT,
     finding_id INTEGER,
     disposition TEXT, note TEXT, actor TEXT, at TEXT
+);
+CREATE TABLE IF NOT EXISTS cases (
+    case_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT, client TEXT,
+    state TEXT DEFAULT 'open',
+    created_at TEXT, created_by TEXT, closed_at TEXT
+);
+CREATE TABLE IF NOT EXISTS case_log (
+    log_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    case_id INTEGER, event TEXT, note TEXT, actor TEXT, at TEXT
 );
 """
 
@@ -94,7 +105,7 @@ class Database:
 
     def init_schema(self) -> None:
         self.conn.executescript(SCHEMA)
-        # Idempotent migrations for DBs created before later columns (match_kind/match_count, disposition*, alerts.suppressed).
+        # Idempotent migrations for DBs created before later columns (match_kind/match_count, disposition*, alerts.suppressed, case_id).
         for ddl in (
             "ALTER TABLE leak_hits ADD COLUMN match_kind TEXT DEFAULT 'literal'",
             "ALTER TABLE leak_hits ADD COLUMN match_count INTEGER DEFAULT 1",
@@ -102,6 +113,7 @@ class Database:
             "ALTER TABLE findings ADD COLUMN disposition_actor TEXT",
             "ALTER TABLE findings ADD COLUMN disposition_at TEXT",
             "ALTER TABLE alerts ADD COLUMN suppressed INTEGER DEFAULT 0",
+            "ALTER TABLE findings ADD COLUMN case_id INTEGER",
         ):
             try:
                 self.conn.execute(ddl)
@@ -341,3 +353,29 @@ class Database:
         return [dict(r) for r in self.conn.execute(
             "SELECT * FROM disposition_log WHERE finding_id = ? ORDER BY log_id",
             (finding_id,))]
+
+    def create_case(self, title, client, actor, now) -> int:
+        cur = self.conn.execute(
+            "INSERT INTO cases (title, client, state, created_at, created_by) "
+            "VALUES (?, ?, 'open', ?, ?)", (title, client, now, actor))
+        case_id = cur.lastrowid
+        self.conn.execute(
+            "INSERT INTO case_log (case_id, event, note, actor, at) "
+            "VALUES (?, 'created', ?, ?, ?)", (case_id, title, actor, now))
+        self.conn.commit()
+        return case_id
+
+    def get_case(self, case_id) -> dict | None:
+        cur = self.conn.execute("SELECT * FROM cases WHERE case_id = ?", (case_id,))
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+    def list_cases(self, client=None, state=None) -> list[dict]:
+        q, params, conds = "SELECT * FROM cases", [], []
+        if client:
+            conds.append("client = ?"); params.append(client)
+        if state:
+            conds.append("state = ?"); params.append(state)
+        if conds:
+            q += " WHERE " + " AND ".join(conds)
+        return [dict(r) for r in self.conn.execute(q + " ORDER BY case_id DESC", params)]

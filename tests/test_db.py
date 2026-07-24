@@ -308,3 +308,37 @@ def test_disposition_sticky_across_reopen(tmp_path):
     db.reopen_finding("leak:u|t", "2026-07-24T03:00:00", "s")     # machine reopen
     assert db.get_finding_by_id(fid)["disposition"] == "false_positive"
     assert db.get_finding_by_id(fid)["status"] == "open"          # status did flip
+
+
+def test_case_migration_adds_tables_and_column(tmp_path):
+    import sqlite3
+    p = str(tmp_path / "legacy.db")
+    c = sqlite3.connect(p)
+    c.execute("CREATE TABLE findings (finding_id INTEGER PRIMARY KEY AUTOINCREMENT, "
+              "kind TEXT, dedup_key TEXT UNIQUE, url TEXT, host TEXT, term TEXT, "
+              "status TEXT, severity TEXT, first_seen TEXT, last_seen TEXT, "
+              "resolved_at TEXT, context_snippet TEXT)")
+    c.commit(); c.close()
+    db = Database(p); db.init_schema()                          # must not raise
+    fcols = {r[1] for r in db.conn.execute("PRAGMA table_info(findings)")}
+    assert "case_id" in fcols
+    assert {r[1] for r in db.conn.execute("PRAGMA table_info(cases)")} >= \
+        {"case_id", "title", "client", "state", "created_at", "created_by", "closed_at"}
+    assert {r[1] for r in db.conn.execute("PRAGMA table_info(case_log)")} >= \
+        {"case_id", "event", "note", "actor", "at"}
+
+
+def test_create_case_and_list(tmp_path):
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    cid = db.create_case("Acme billing breach", "Acme Corp", "alice", "2026-07-24T00:00:00")
+    assert cid >= 1
+    c = db.get_case(cid)
+    assert c["title"] == "Acme billing breach" and c["client"] == "Acme Corp"
+    assert c["state"] == "open" and c["created_by"] == "alice"
+    # created event logged
+    log = list(db.conn.execute("SELECT event FROM case_log WHERE case_id=?", (cid,)))
+    assert log[0][0] == "created"
+    # list filters
+    db.create_case("Internal", None, None, "2026-07-24T01:00:00")
+    assert {c["title"] for c in db.list_cases(client="Acme Corp")} == {"Acme billing breach"}
+    assert len(db.list_cases()) == 2
