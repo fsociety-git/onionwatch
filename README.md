@@ -254,7 +254,7 @@ resolved) with evidence and disposition. By default, findings marked
 `false_positive` or `dismissed` are excluded; pass `--all` to include them.
 Use `--since DATE` to limit findings to those active since a specific date.
 
-Reports contain only **masked evidence**, never raw leaked data. Markdown
+Evidence is a **bounded excerpt** around each match (never full leaked datasets). Credential and PII-detector matches are masked; plain term matches show surrounding page text. Markdown
 reports are human-readable and can be converted to PDF or DOCX using standard
 tools like Pandoc.
 
