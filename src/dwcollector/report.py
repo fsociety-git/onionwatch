@@ -162,3 +162,49 @@ def render_markdown(report: dict) -> str:
             "",
         ]
     return "\n".join(lines)
+
+
+def render_case_json(report: dict) -> str:
+    return json.dumps(report, indent=2)
+
+
+def render_case_markdown(report: dict) -> str:
+    c, s = report["case"], report["summary"]
+    by_kind = ", ".join(f"{k} {n}" for k, n in s["by_kind"].items()) or "none"
+    by_disp = ", ".join(f"{k} {n}" for k, n in s["by_disposition"].items()) or "none"
+    lines = [
+        f"# Incident Report: {c['title']} (case #{c['case_id']})",
+        "",
+        f"- Client: {c['client'] or '—'}",
+        f"- State: {c['state']}  ·  Duration: {c['duration'] or '—'}",
+        f"- Opened: {c['created_at']} by {c['created_by'] or '—'}",
+        f"- Closed: {c['closed_at'] or '—'}",
+        f"- Generated: {report['generated_at']}",
+        "",
+        (f"**{s['total']}** findings — {s['open']} open, {s['resolved']} resolved · "
+         f"{s['critical']} critical, {s['high']} high · {s['sites']} sites"),
+        f"- By kind: {by_kind}",
+        f"- By disposition: {by_disp}",
+        "",
+        "## Findings",
+        "",
+    ]
+    if not report["findings"]:
+        lines.append("_No findings in this case._")
+        lines.append("")
+    for f in report["findings"]:
+        lines += [
+            f"### {f['host']} — `{f['term']}`",
+            (f"- Kind: {f['kind']}  ·  Severity: {f['severity']}  ·  "
+             f"Status: {f['status']}  ·  Disposition: {f['disposition']}"),
+            f"- First seen: {f['first_seen']}  ·  Last seen: {f['last_seen']}",
+            f"- Evidence: {f['evidence']}",
+            "",
+        ]
+    lines += ["## Timeline", ""]
+    if not report["timeline"]:
+        lines.append("_No timeline events._")
+    for e in report["timeline"]:
+        note = f" — {e['note']}" if e.get("note") else ""
+        lines.append(f"- {e['at']} — {e['actor'] or '—'}: {e['event']}{note}")
+    return "\n".join(lines)

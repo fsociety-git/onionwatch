@@ -1,7 +1,7 @@
 import json
 from dwcollector.db import Database
 from dwcollector.report import client_findings, build_report, render_json, render_markdown
-from dwcollector.report import build_case_report
+from dwcollector.report import build_case_report, render_case_json, render_case_markdown
 
 CLIENT = {"name": "Acme", "terms": ["acme.com", "fuzzy:secret.com"]}
 
@@ -186,3 +186,25 @@ def test_duration_degrades_on_bad_timestamp(tmp_path):
     from dwcollector.report import _duration
     assert _duration(None, None, "2026-07-24T00:00:00") == ""
     assert _duration("garbage", None, "2026-07-24T00:00:00") == ""
+
+
+def test_render_case_json_round_trips(tmp_path):
+    db, cid = _mixed_case(tmp_path)
+    rep = build_case_report(db.get_case(cid), db.case_findings(cid),
+                            db.case_history(cid), "2026-07-26T00:00:00")
+    doc = json.loads(render_case_json(rep))
+    assert doc["case"]["case_id"] == cid
+    assert doc["summary"]["total"] == 2
+    assert len(doc["timeline"]) == len(rep["timeline"])
+
+
+def test_render_case_markdown_contains_key_content(tmp_path):
+    db, cid = _mixed_case(tmp_path)
+    rep = build_case_report(db.get_case(cid), db.case_findings(cid),
+                            db.case_history(cid), "2026-07-26T00:00:00")
+    md = render_case_markdown(rep)
+    assert "# Incident Report: Acme breach" in md
+    assert f"case #{cid}" in md
+    assert "acme.com" in md and "a.onion" in md      # a member finding
+    assert "## Timeline" in md
+    assert "created" in md                            # a timeline event
