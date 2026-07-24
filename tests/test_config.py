@@ -120,3 +120,23 @@ def test_load_sources_parses_and_skips_malformed(tmp_path, capsys):
     srcs = load_sources(str(p))
     assert {s["name"] for s in srcs} == {"idx", "srch"}
     assert "bad" in capsys.readouterr().err
+
+
+def test_load_clients_missing_file_returns_empty(tmp_path):
+    from dwcollector.config import load_clients
+    assert load_clients(str(tmp_path / "nope.toml")) == []
+
+
+def test_load_clients_parses_and_skips_malformed(tmp_path, capsys):
+    from dwcollector.config import load_clients
+    p = tmp_path / "clients.toml"
+    p.write_text(
+        '[[client]]\n'
+        'name = "Acme Corp"\n'
+        'terms = ["acme-corp.com", "fuzzy:ACME-DB"]\n\n'
+        '[[client]]\n'          # malformed: no terms
+        'name = "Beta"\n'
+    )
+    cs = load_clients(str(p))
+    assert [c["name"] for c in cs] == ["Acme Corp"]
+    assert "Beta" in capsys.readouterr().err

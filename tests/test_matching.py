@@ -202,3 +202,14 @@ def test_find_matches_literal_and_fuzzy_same_identifier_share_key():
     ms = find_matches(text, ["acme.com", "fuzzy:acme.com"], [])
     # both techniques resolve to the same underlying identifier key
     assert {m.key for m in ms} == {"acme.com"}
+
+
+from dwcollector.matching import underlying_key
+
+
+def test_underlying_key_strips_prefixes_but_keeps_re_and_literal():
+    assert underlying_key("acme.com") == "acme.com"          # literal unchanged
+    assert underlying_key("fuzzy:acme.com") == "acme.com"    # fuzzy stripped
+    assert underlying_key("enc:SECRET") == "SECRET"          # enc stripped
+    assert underlying_key("cred:u@x.com") == "u@x.com"       # cred stripped
+    assert underlying_key("re:ACME-[A-Z]+") == "re:ACME-[A-Z]+"  # re: kept (matches finding key)

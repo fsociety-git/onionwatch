@@ -211,6 +211,15 @@ def match_term(text: str, term: str, ctx: int = 60) -> list[Match]:
             for m in rx.finditer(text)]
 
 
+def underlying_key(term: str) -> str:
+    """The finding key for a watchlist term: fuzzy:/enc:/cred: strip to the
+    identifier; re: and literal terms are kept verbatim (mirrors match_term)."""
+    for p in ("fuzzy:", "enc:", "cred:"):
+        if term.startswith(p):
+            return term[len(p):]
+    return term
+
+
 def find_matches(text: str, terms: list[str], detectors: list[str],
                  ctx: int = 60) -> list[Match]:
     out: list[Match] = []
