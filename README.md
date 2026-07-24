@@ -394,6 +394,28 @@ Documented, not yet implemented:
 - **`inbound_links` is never populated**, so the last-resort canonical
   tiebreaker is currently inert.
 
+### Crawl prioritization (optional)
+
+By default the crawler is breadth-first: pages are fetched in discovery order,
+shallowest first. To fetch high-value sites sooner, add a `[crawl_priority]`
+table to `config.toml` mapping page categories (the same names used in
+`categories.toml`) to integer weights:
+
+    [crawl_priority]
+    default     = 0
+    marketplace = 100
+    forum       = 80
+    paste       = 60
+
+When a page is crawled and categorized, every link it yields is enqueued at its
+parent's category weight, and the frontier fetches highest-priority URLs first
+(ties broken breadth-first). A URL linked from more than one page keeps the
+highest priority it was ever offered. Seeds, and links from `unknown` or
+unmapped-category pages, use `default` (0 if unset).
+
+With no `[crawl_priority]` table, every priority is 0 and the crawl order is
+unchanged — this feature is fully opt-in.
+
 ## Tuning clone detection
 
 `cluster` groups URLs whose `content_simhash` values are within
