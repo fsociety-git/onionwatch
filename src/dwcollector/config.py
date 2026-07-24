@@ -85,3 +85,18 @@ def load_sources(path: str = "sources.toml") -> list[dict]:
             print(f"sources: skipping malformed source entry #{i} "
                   f"({name or '?'})", file=sys.stderr)
     return valid
+
+def load_clients(path: str = "clients.toml") -> list[dict]:
+    try:
+        data = _read_toml(path)
+    except FileNotFoundError:
+        return []
+    valid: list[dict] = []
+    for i, c in enumerate(data.get("client", [])):
+        name, terms = c.get("name"), c.get("terms")
+        if name and isinstance(terms, list) and terms:
+            valid.append(c)
+        else:
+            print(f"clients: skipping malformed client entry #{i} ({name or '?'})",
+                  file=sys.stderr)
+    return valid

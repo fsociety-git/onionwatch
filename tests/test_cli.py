@@ -403,3 +403,69 @@ def test_alerts_command_shows_disposition(tmp_path, capsys):
     args = build_parser().parse_args(["alerts", "--status", "open"])
     _run_alerts(db, args)
     assert "confirmed" in capsys.readouterr().out
+
+
+from dwcollector.report import client_findings as _cf  # noqa: F401 (ensures import path)
+
+
+def test_run_cycle_unions_client_terms(tmp_path, monkeypatch):
+    import dwcollector.cli as cli_mod
+    from dwcollector.hunt import HuntOutcome
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    (tmp_path / "wl.txt").write_text("baseterm\n")
+    cfg = Config(watchlist_terms=str(tmp_path / "wl.txt"),
+                 alerts_path=str(tmp_path / "a.jsonl"))
+    monkeypatch.setattr(cli_mod, "load_clients",
+                        lambda p: [{"name": "C", "terms": ["clientterm"]}])
+    monkeypatch.setattr(cli_mod, "load_sources", lambda p: [])
+    monkeypatch.setattr(cli_mod, "load_verified_sources",
+                        lambda p: {"verified_onions": [], "pgp": {}, "directories": []})
+    recorded = {}
+
+    async def hunt_stub(db, client, terms, run_id, now, detectors=None, verified=None):
+        recorded["terms"] = terms
+        return HuntOutcome(0, set(), set(), set())
+    monkeypatch.setattr(cli_mod, "hunt", hunt_stub)
+
+    res = run_cycle(cfg, db, seeds_path=str(tmp_path / "seeds.txt"),
+                    crawl_fn=lambda *a, **k: SimpleNamespace(discovered=0, alive=0, stop_reason="ok"),
+                    cluster_fn=lambda *a, **k: 0, client_factory=lambda cfg: _StubClient(""))
+    assert res["ok"] is True
+    assert "baseterm" in recorded["terms"] and "clientterm" in recorded["terms"]
+
+
+def test_report_command_json_and_unknown_client(tmp_path, capsys, monkeypatch):
+    import dwcollector.cli as cli_mod
+    from dwcollector.cli import build_parser, _run_report
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    db.open_finding("leak", "leak:http://x.onion/|acme.com", "http://x.onion/",
+                    "x.onion", "acme.com", "critical", "ev", "2026-07-24T00:00:00")
+    monkeypatch.setattr(cli_mod, "load_clients",
+                        lambda p: [{"name": "Acme", "terms": ["acme.com"]}])
+
+    args = build_parser().parse_args(["report", "--client", "Acme", "--format", "json"])
+    assert _run_report(db, args) == 0
+    import json as _json
+    doc = _json.loads(capsys.readouterr().out)
+    assert doc["client"] == "Acme" and doc["summary"]["total"] == 1
+
+    bad = build_parser().parse_args(["report", "--client", "Nope"])
+    assert _run_report(db, bad) == 1
+    assert "Nope" in capsys.readouterr().err
+
+
+def test_report_all_flag_includes_dismissed(tmp_path, capsys, monkeypatch):
+    import dwcollector.cli as cli_mod
+    from dwcollector.cli import build_parser, _run_report
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    db.open_finding("leak", "leak:http://x.onion/|acme.com", "http://x.onion/",
+                    "x.onion", "acme.com", "critical", "ev", "2026-07-24T00:00:00")
+    db.set_disposition(db.get_finding("leak:http://x.onion/|acme.com")["finding_id"],
+                       "dismissed", None, None, "2026-07-24T01:00:00")
+    monkeypatch.setattr(cli_mod, "load_clients",
+                        lambda p: [{"name": "Acme", "terms": ["acme.com"]}])
+    import json as _json
+    _run_report(db, build_parser().parse_args(["report", "--client", "Acme", "--format", "json"]))
+    assert _json.loads(capsys.readouterr().out)["summary"]["total"] == 0   # dismissed excluded
+    _run_report(db, build_parser().parse_args(["report", "--client", "Acme", "--format", "json", "--all"]))
+    assert _json.loads(capsys.readouterr().out)["summary"]["total"] == 1   # --all includes
