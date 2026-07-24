@@ -471,6 +471,43 @@ def test_report_all_flag_includes_dismissed(tmp_path, capsys, monkeypatch):
     assert _json.loads(capsys.readouterr().out)["summary"]["total"] == 1   # --all includes
 
 
+def test_report_case_command(tmp_path, capsys):
+    import json as _json
+    from dwcollector.cli import build_parser, _run_report
+    db = Database(str(tmp_path / "t.db")); db.init_schema()
+    cid = db.create_case("Acme breach", "Acme", "an@corp", "2026-07-24T00:00:00")
+    db.open_finding("leak", "leak:x", "http://x.onion/", "x.onion", "acme.com",
+                    "critical", "ev", "2026-07-24T01:00:00")
+    fid = db.get_finding("leak:x")["finding_id"]
+    db.assign_finding(fid, cid, "an@corp", "2026-07-24T02:00:00")
+
+    # JSON
+    assert _run_report(db, build_parser().parse_args(
+        ["report", "--case", str(cid), "--format", "json"])) == 0
+    doc = _json.loads(capsys.readouterr().out)
+    assert doc["case"]["case_id"] == cid and doc["summary"]["total"] == 1
+
+    # Markdown
+    assert _run_report(db, build_parser().parse_args(
+        ["report", "--case", str(cid)])) == 0
+    md = capsys.readouterr().out
+    assert f"case #{cid}" in md and "x.onion" in md and "acme.com" in md
+
+    # unknown case id -> stderr + exit 1
+    assert _run_report(db, build_parser().parse_args(
+        ["report", "--case", "99999"])) == 1
+    assert "99999" in capsys.readouterr().err
+
+
+def test_report_requires_exactly_one_target():
+    import pytest
+    from dwcollector.cli import build_parser
+    with pytest.raises(SystemExit):                     # neither --client nor --case
+        build_parser().parse_args(["report"])
+    with pytest.raises(SystemExit):                     # both -> mutually exclusive
+        build_parser().parse_args(["report", "--client", "A", "--case", "1"])
+
+
 # --- Task 3: nested `case` CLI command group ---
 
 from dwcollector.cli import build_parser, _run_case
