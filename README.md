@@ -279,7 +279,7 @@ Create a new case:
 
     dwcollector case create "<title>" [--client "Name"] [--by "analyst@corp"]
 
-Lists cases with optional filtering:
+List cases with optional filtering:
 
     dwcollector case list [--client "Name"] [--state open|investigating|closed]
 
@@ -307,8 +307,7 @@ Cases appear as a **Cases** section in the per-client report:
 
     dwcollector report --client "Acme Corp" [--format md|json] [--since DATE] [--all]
 
-The report includes all cases for that client, along with each case's member
-findings, state, and timeline notes.
+The report includes a **Cases** section with a one-line summary per case for that client — case id, state, title, and the number of findings assigned to it.
 
 ## Run on host (uses your Tor on 127.0.0.1:9050)
 
