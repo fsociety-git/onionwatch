@@ -447,6 +447,18 @@ prices. Prices are stored in their native currency — there is no FX conversion
 With `extract_listings` off (the default), nothing is extracted and crawl
 behavior is unchanged.
 
+When listing extraction is on and a watchlist term (from `terms.txt` or a
+client's `clients.toml` terms) matches a listing's product text, dwcollector
+raises a **`market_listing` finding** (severity `high`) — "this identifier is
+being sold on market H." These findings flow into the same
+`alerts`/`triage`/`disposition`/`history` and case machinery as any other
+finding, so a match on a market is triaged and cased like a leak. Findings are
+keyed per market host + identifier (price lives in the evidence, not the
+identity), and resolve when the matching listing stops appearing. Matching reuses
+the hunt's pattern-aware matcher (literal / `fuzzy:` / `enc:` / `cred:` / `re:` /
+PII detectors); a `cred:`/PII match's stored evidence is masked. CRITICAL stays
+reserved for confirmed leaks — market matches are `high`, a best-effort lead.
+
 ## Tuning clone detection
 
 `cluster` groups URLs whose `content_simhash` values are within
