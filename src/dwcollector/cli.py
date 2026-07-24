@@ -18,7 +18,8 @@ from .probe import reprobe_all
 from .categorize import categorize
 from .cluster import run_clustering
 from .hunt import hunt, load_terms
-from .alerts import reconcile_leaks, reconcile_dead_originals, reconcile_anchor_identity
+from .alerts import (reconcile_leaks, reconcile_dead_originals,
+                     reconcile_anchor_identity, reconcile_listing_matches)
 from .report import (client_findings, build_report, render_json, render_markdown,
                      client_cases, build_case_report, render_case_json,
                      render_case_markdown)
@@ -428,6 +429,8 @@ def run_cycle(cfg, db, seeds_path: str = "seeds.txt",
         emitted += reconcile_dead_originals(db, cfg, _now())
         emitted += reconcile_anchor_identity(db, cfg, outcome.identity_checked,
                                              outcome.identity_failed, _now())
+        if cfg.extract_listings and terms:
+            emitted += reconcile_listing_matches(db, cfg, terms, cfg.pii_detectors, _now())
         result["alerts"] = len(emitted)
     except Exception as exc:  # noqa: BLE001 - isolate this cycle's failure
         result["ok"] = False

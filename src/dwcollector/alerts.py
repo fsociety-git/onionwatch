@@ -3,10 +3,13 @@ import json
 import os
 import sys
 
+from .matching import find_matches
+
 
 LEAK_SEVERITY = "critical"
 DEAD_SEVERITY = "high"
 ANCHOR_IDENTITY_SEVERITY = "high"
+LISTING_SEVERITY = "high"
 SUPPRESSED_DISPOSITIONS = ("false_positive", "dismissed")
 
 
@@ -39,6 +42,11 @@ def _title(finding: dict, event: str) -> str:
         if event == "opened":
             return f"Verified anchor {finding['host']} failed identity re-verification"
         return f"Anchor {finding['host']} identity re-verification recovered"
+    if finding["kind"] == "market_listing":
+        if event == "opened":
+            return (f"Watchlist term '{finding['term']}' offered in a market "
+                    f"listing on {finding['host']}")
+        return f"Market listing of '{finding['term']}' on {finding['host']} gone"
     if event == "opened":
         return f"Verified original {finding['host']} went dark"
     return f"Verified original {finding['host']} recovered"
@@ -48,6 +56,11 @@ def _body(finding: dict, event: str) -> str:
     if finding["kind"] == "leak":
         return (f"url={finding['url']} term={finding['term']} "
                 f"snippet={finding.get('context_snippet') or ''}")
+    if finding["kind"] == "market_listing":
+        note = finding.get("context_snippet") or ""
+        body = (f"url={finding['url']} term={finding['term']} "
+                f"— matched in an extracted marketplace listing")
+        return f"{body} · {note}" if note else body
     reason = ("anchor identity re-verification failed"
               if finding["kind"] == "anchor_identity"
               else "canonical trusted site liveness changed")
@@ -123,6 +136,37 @@ def reconcile_leaks(db, cfg, run_id, covered_urls, now, emit_fn=emit) -> list[di
         if f["dedup_key"] in seen_keys:
             continue
         if f["url"] in covered_urls:
+            db.resolve_finding(f["dedup_key"], now)
+            alerts.append(emit_fn(db, cfg, db.get_finding(f["dedup_key"]), "resolved", now))
+    return alerts
+
+
+def _listing_snippet(lst, mt) -> str:
+    price = lst.get("price_raw") or ""
+    return f"[{price}] {mt.context}" if price else mt.context
+
+
+def reconcile_listing_matches(db, cfg, terms, detectors, now, emit_fn=emit) -> list[dict]:
+    alerts, seen_keys = [], set()
+    for lst in db.list_listings():
+        for mt in find_matches(lst.get("product_text") or "", terms, detectors):
+            key = f"listing:{lst['host']}|{mt.key}"
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            snippet = _listing_snippet(lst, mt)
+            existing = db.get_finding(key)
+            if existing is None:
+                db.open_finding("market_listing", key, lst["url"], lst["host"],
+                                mt.key, LISTING_SEVERITY, snippet, now)
+                alerts.append(emit_fn(db, cfg, db.get_finding(key), "opened", now))
+            elif existing["status"] == "resolved":
+                db.reopen_finding(key, now, snippet)
+                alerts.append(emit_fn(db, cfg, db.get_finding(key), "opened", now))
+            else:
+                db.touch_finding(key, now)
+    for f in db.open_findings("market_listing"):
+        if f["dedup_key"] not in seen_keys:
             db.resolve_finding(f["dedup_key"], now)
             alerts.append(emit_fn(db, cfg, db.get_finding(f["dedup_key"]), "resolved", now))
     return alerts
