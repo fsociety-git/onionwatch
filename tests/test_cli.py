@@ -135,6 +135,13 @@ def test_run_cycle_isolates_cluster_exception(tmp_path, monkeypatch):
         raise RuntimeError("bad verified sources")
 
     monkeypatch.setattr(cli_mod, "run_clustering", boom)
+    # Stub the hunt stage's verified-sources load so this test does not depend
+    # on a local, gitignored verified_sources.toml (see
+    # test_run_cycle_hunts_and_alerts) and the cluster error is the one reported.
+    monkeypatch.setattr(
+        cli_mod, "load_verified_sources",
+        lambda path: {"verified_onions": [], "pgp": {}, "directories": []},
+    )
 
     result = cli_mod.run_cycle(cfg, db, seeds_path=str(tmp_path / "nonexistent_seeds.txt"))
     assert result["ok"] is False
