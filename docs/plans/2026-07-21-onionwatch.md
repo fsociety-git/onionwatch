@@ -1,6 +1,5 @@
-# dwcollector Implementation Plan
+# onionwatch Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build a Tor-based threat-hunting crawler that deep-discovers `.onion` sites across all categories, checks liveness through a containerised Tor, categorises them, distinguishes legit originals from clone/phishing mirrors, and hunts a client's identifiers across the curated legit sites.
 
@@ -23,8 +22,8 @@
 ## File Structure
 
 ```
-dwcollector/
-├── docker-compose.yml          # Task 12: tor + dwcollector services
+onionwatch/
+├── docker-compose.yml          # Task 12: tor + onionwatch services
 ├── Dockerfile                  # Task 12
 ├── tor/torrc                   # Task 12
 ├── requirements.txt            # Task 1
@@ -33,7 +32,7 @@ dwcollector/
 ├── verified_sources.toml       # Task 9 (example; real one gitignored)
 ├── seeds.txt                   # Task 5 (example; real one gitignored)
 ├── README.md                   # Task 13
-├── src/dwcollector/
+├── src/onionwatch/
 │   ├── __init__.py             # Task 1
 │   ├── config.py               # Task 1  load_config / load_categories / load_verified
 │   ├── db.py                   # Task 2  Database: schema, urls, frontier, runs, hits
@@ -54,7 +53,7 @@ dwcollector/
 ### Task 1: Project scaffold, config loader
 
 **Files:**
-- Create: `requirements.txt`, `config.toml`, `src/dwcollector/__init__.py`, `src/dwcollector/config.py`, `tests/test_config.py`, `pytest.ini`
+- Create: `requirements.txt`, `config.toml`, `src/onionwatch/__init__.py`, `src/onionwatch/config.py`, `tests/test_config.py`, `pytest.ini`
 - Test: `tests/test_config.py`
 
 **Interfaces:**
@@ -63,7 +62,7 @@ dwcollector/
 - [ ] **Step 1: Create venv and install deps**
 
 ```bash
-cd /Users/fsociety/Documents/Projects/dwcollector
+cd onionwatch
 /usr/bin/python3 -m venv .venv || python3.12 -m venv .venv
 # If system python is 3.9, install 3.12 first: brew install python@3.12 && python3.12 -m venv .venv
 .venv/bin/python --version    # must print Python 3.12.x
@@ -97,7 +96,7 @@ pythonpath = src
 - [ ] **Step 3: Write the failing test** — `tests/test_config.py`
 
 ```python
-from dwcollector.config import load_config, load_categories
+from onionwatch.config import load_config, load_categories
 
 def test_load_config_defaults(tmp_path):
     cfg_file = tmp_path / "config.toml"
@@ -127,15 +126,15 @@ def test_load_categories(tmp_path):
 - [ ] **Step 4: Run test to verify it fails**
 
 Run: `.venv/bin/pytest tests/test_config.py -v`
-Expected: FAIL — `ModuleNotFoundError: No module named 'dwcollector.config'`
+Expected: FAIL — `ModuleNotFoundError: No module named 'onionwatch.config'`
 
-- [ ] **Step 5: Implement `src/dwcollector/__init__.py`**
+- [ ] **Step 5: Implement `src/onionwatch/__init__.py`**
 
 ```python
 __version__ = "0.1.0"
 ```
 
-- [ ] **Step 6: Implement `src/dwcollector/config.py`**
+- [ ] **Step 6: Implement `src/onionwatch/config.py`**
 
 ```python
 from __future__ import annotations
@@ -154,7 +153,7 @@ class Config:
     per_host_delay: float = 2.0
     request_timeout: float = 60.0
     max_retries: int = 3
-    user_agent: str = "dwcollector/0.1"
+    user_agent: str = "onionwatch/0.1"
     ahmia_enabled: bool = True
     snippet_chars: int = 500
     simhash_distance: int = 3
@@ -193,7 +192,7 @@ concurrency       = 8
 per_host_delay    = 2.0
 request_timeout   = 60.0
 max_retries       = 3
-user_agent        = "dwcollector/0.1"
+user_agent        = "onionwatch/0.1"
 ahmia_enabled     = true
 snippet_chars     = 500
 simhash_distance  = 3
@@ -207,7 +206,7 @@ Expected: PASS (2 passed)
 - [ ] **Step 9: Commit**
 
 ```bash
-git add requirements.txt config.toml pytest.ini src/dwcollector/__init__.py src/dwcollector/config.py tests/test_config.py
+git add requirements.txt config.toml pytest.ini src/onionwatch/__init__.py src/onionwatch/config.py tests/test_config.py
 git commit -m "feat: project scaffold and config loader"
 ```
 
@@ -216,7 +215,7 @@ git commit -m "feat: project scaffold and config loader"
 ### Task 2: Database layer (schema, urls, frontier, runs, hits)
 
 **Files:**
-- Create: `src/dwcollector/db.py`, `tests/test_db.py`
+- Create: `src/onionwatch/db.py`, `tests/test_db.py`
 
 **Interfaces:**
 - Consumes: nothing.
@@ -239,7 +238,7 @@ git commit -m "feat: project scaffold and config loader"
 - [ ] **Step 1: Write the failing test** — `tests/test_db.py`
 
 ```python
-from dwcollector.db import Database
+from onionwatch.db import Database
 
 def make_db(tmp_path):
     db = Database(str(tmp_path / "t.db"))
@@ -300,9 +299,9 @@ def test_canonical_trusted_filter(tmp_path):
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `.venv/bin/pytest tests/test_db.py -v`
-Expected: FAIL — `ModuleNotFoundError: No module named 'dwcollector.db'`
+Expected: FAIL — `ModuleNotFoundError: No module named 'onionwatch.db'`
 
-- [ ] **Step 3: Implement `src/dwcollector/db.py`**
+- [ ] **Step 3: Implement `src/onionwatch/db.py`**
 
 ```python
 from __future__ import annotations
@@ -449,7 +448,7 @@ Expected: PASS (5 passed)
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/dwcollector/db.py tests/test_db.py
+git add src/onionwatch/db.py tests/test_db.py
 git commit -m "feat: sqlite database layer with resumable frontier"
 ```
 
@@ -458,7 +457,7 @@ git commit -m "feat: sqlite database layer with resumable frontier"
 ### Task 3: Tor client (httpx over SOCKS, retry/backoff)
 
 **Files:**
-- Create: `src/dwcollector/tor_client.py`, `tests/test_tor_client.py`
+- Create: `src/onionwatch/tor_client.py`, `tests/test_tor_client.py`
 
 **Interfaces:**
 - Consumes: `Config` (Task 1).
@@ -469,8 +468,8 @@ git commit -m "feat: sqlite database layer with resumable frontier"
 ```python
 import httpx
 import pytest
-from dwcollector.config import Config
-from dwcollector.tor_client import TorClient
+from onionwatch.config import Config
+from onionwatch.tor_client import TorClient
 
 def handler_ok(request):
     return httpx.Response(200, text="<html><title>ok</title></html>")
@@ -502,9 +501,9 @@ async def test_fetch_retries_then_fails():
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `.venv/bin/pytest tests/test_tor_client.py -v`
-Expected: FAIL — `ModuleNotFoundError: No module named 'dwcollector.tor_client'`
+Expected: FAIL — `ModuleNotFoundError: No module named 'onionwatch.tor_client'`
 
-- [ ] **Step 3: Implement `src/dwcollector/tor_client.py`**
+- [ ] **Step 3: Implement `src/onionwatch/tor_client.py`**
 
 ```python
 from __future__ import annotations
@@ -567,7 +566,7 @@ Expected: PASS (2 passed)
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/dwcollector/tor_client.py tests/test_tor_client.py
+git add src/onionwatch/tor_client.py tests/test_tor_client.py
 git commit -m "feat: async Tor SOCKS client with retry/backoff"
 ```
 
@@ -576,7 +575,7 @@ git commit -m "feat: async Tor SOCKS client with retry/backoff"
 ### Task 4: Link extraction + URL normalization
 
 **Files:**
-- Create: `src/dwcollector/discover.py`, `tests/test_discover.py`
+- Create: `src/onionwatch/discover.py`, `tests/test_discover.py`
 
 **Interfaces:**
 - Consumes: nothing (pure functions).
@@ -585,7 +584,7 @@ git commit -m "feat: async Tor SOCKS client with retry/backoff"
 - [ ] **Step 1: Write the failing test** — `tests/test_discover.py`
 
 ```python
-from dwcollector.discover import (
+from onionwatch.discover import (
     normalize_url, onion_host, extract_onion_links, visible_text,
 )
 
@@ -621,9 +620,9 @@ def test_visible_text_strips_tags():
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `.venv/bin/pytest tests/test_discover.py -v`
-Expected: FAIL — `ModuleNotFoundError: No module named 'dwcollector.discover'`
+Expected: FAIL — `ModuleNotFoundError: No module named 'onionwatch.discover'`
 
-- [ ] **Step 3: Implement the pure functions in `src/dwcollector/discover.py`**
+- [ ] **Step 3: Implement the pure functions in `src/onionwatch/discover.py`**
 
 ```python
 from __future__ import annotations
@@ -684,7 +683,7 @@ Expected: PASS (4 passed)
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/dwcollector/discover.py tests/test_discover.py
+git add src/onionwatch/discover.py tests/test_discover.py
 git commit -m "feat: onion link extraction and url normalization"
 ```
 
@@ -693,7 +692,7 @@ git commit -m "feat: onion link extraction and url normalization"
 ### Task 5: Resumable BFS crawl loop
 
 **Files:**
-- Modify: `src/dwcollector/discover.py` (add `crawl`)
+- Modify: `src/onionwatch/discover.py` (add `crawl`)
 - Create: `seeds.txt` (example), extend `tests/test_discover.py`
 
 **Interfaces:**
@@ -704,16 +703,16 @@ git commit -m "feat: onion link extraction and url normalization"
 
 ```python
 import pytest
-from dwcollector.config import Config
-from dwcollector.db import Database
-from dwcollector.discover import crawl, FetchResult  # FetchResult re-exported for typing
+from onionwatch.config import Config
+from onionwatch.db import Database
+from onionwatch.discover import crawl, FetchResult  # FetchResult re-exported for typing
 
 class FakeClient:
     """Returns canned HTML per URL; unknown URLs 404."""
     def __init__(self, pages):
         self.pages = pages
     async def fetch(self, url):
-        from dwcollector.tor_client import FetchResult as FR
+        from onionwatch.tor_client import FetchResult as FR
         html = self.pages.get(url)
         if html is None:
             return FR(url, 404, "", 5, True)
@@ -752,7 +751,7 @@ async def test_crawl_respects_max_urls(tmp_path):
 Run: `.venv/bin/pytest tests/test_discover.py -k crawl -v`
 Expected: FAIL — `ImportError: cannot import name 'crawl'`
 
-- [ ] **Step 3: Implement `crawl` in `src/dwcollector/discover.py`**
+- [ ] **Step 3: Implement `crawl` in `src/onionwatch/discover.py`**
 
 Add these imports at the top of the file and append the code below:
 
@@ -839,7 +838,7 @@ Expected: PASS (all discover tests)
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/dwcollector/discover.py tests/test_discover.py seeds.txt
+git add src/onionwatch/discover.py tests/test_discover.py seeds.txt
 git commit -m "feat: resumable deep BFS crawl with safety caps"
 ```
 
@@ -848,7 +847,7 @@ git commit -m "feat: resumable deep BFS crawl with safety caps"
 ### Task 6: Liveness probe
 
 **Files:**
-- Create: `src/dwcollector/probe.py`, `tests/test_probe.py`
+- Create: `src/onionwatch/probe.py`, `tests/test_probe.py`
 
 **Interfaces:**
 - Consumes: `TorClient.fetch`, `discover.visible_text`, `Database`.
@@ -858,8 +857,8 @@ git commit -m "feat: resumable deep BFS crawl with safety caps"
 
 ```python
 import pytest
-from dwcollector.probe import extract_title, probe_url
-from dwcollector.tor_client import FetchResult
+from onionwatch.probe import extract_title, probe_url
+from onionwatch.tor_client import FetchResult
 
 class OneShot:
     def __init__(self, res): self.res = res
@@ -889,9 +888,9 @@ async def test_probe_dead():
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `.venv/bin/pytest tests/test_probe.py -v`
-Expected: FAIL — `ModuleNotFoundError: No module named 'dwcollector.probe'`
+Expected: FAIL — `ModuleNotFoundError: No module named 'onionwatch.probe'`
 
-- [ ] **Step 3: Implement `src/dwcollector/probe.py`**
+- [ ] **Step 3: Implement `src/onionwatch/probe.py`**
 
 ```python
 from __future__ import annotations
@@ -936,7 +935,7 @@ Expected: PASS (3 passed)
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/dwcollector/probe.py tests/test_probe.py
+git add src/onionwatch/probe.py tests/test_probe.py
 git commit -m "feat: liveness probe and reprobe"
 ```
 
@@ -945,7 +944,7 @@ git commit -m "feat: liveness probe and reprobe"
 ### Task 7: Categoriser (keyword rules)
 
 **Files:**
-- Create: `src/dwcollector/categorize.py`, `categories.toml`, `tests/test_categorize.py`
+- Create: `src/onionwatch/categorize.py`, `categories.toml`, `tests/test_categorize.py`
 
 **Interfaces:**
 - Consumes: `load_categories` (Task 1), `discover.visible_text`.
@@ -954,7 +953,7 @@ git commit -m "feat: liveness probe and reprobe"
 - [ ] **Step 1: Write the failing test** — `tests/test_categorize.py`
 
 ```python
-from dwcollector.categorize import categorize
+from onionwatch.categorize import categorize
 
 RULES = {
     "marketplace": ["market", "vendor", "escrow"],
@@ -983,9 +982,9 @@ def test_categorize_tiebreak_is_insertion_order():
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `.venv/bin/pytest tests/test_categorize.py -v`
-Expected: FAIL — `ModuleNotFoundError: No module named 'dwcollector.categorize'`
+Expected: FAIL — `ModuleNotFoundError: No module named 'onionwatch.categorize'`
 
-- [ ] **Step 3: Implement `src/dwcollector/categorize.py`**
+- [ ] **Step 3: Implement `src/onionwatch/categorize.py`**
 
 ```python
 from __future__ import annotations
@@ -1041,7 +1040,7 @@ Expected: PASS (3 passed)
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/dwcollector/categorize.py categories.toml tests/test_categorize.py
+git add src/onionwatch/categorize.py categories.toml tests/test_categorize.py
 git commit -m "feat: keyword-rule categoriser"
 ```
 
@@ -1050,7 +1049,7 @@ git commit -m "feat: keyword-rule categoriser"
 ### Task 8: Content fingerprint (simhash + hamming)
 
 **Files:**
-- Create: `src/dwcollector/fingerprint.py`, `tests/test_fingerprint.py`
+- Create: `src/onionwatch/fingerprint.py`, `tests/test_fingerprint.py`
 
 **Interfaces:**
 - Consumes: nothing.
@@ -1059,7 +1058,7 @@ git commit -m "feat: keyword-rule categoriser"
 - [ ] **Step 1: Write the failing test** — `tests/test_fingerprint.py`
 
 ```python
-from dwcollector.fingerprint import simhash, hamming, to_hex, from_hex
+from onionwatch.fingerprint import simhash, hamming, to_hex, from_hex
 
 def test_identical_text_zero_distance():
     a = simhash("the quick brown fox jumps over the lazy dog")
@@ -1084,9 +1083,9 @@ def test_hex_roundtrip():
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `.venv/bin/pytest tests/test_fingerprint.py -v`
-Expected: FAIL — `ModuleNotFoundError: No module named 'dwcollector.fingerprint'`
+Expected: FAIL — `ModuleNotFoundError: No module named 'onionwatch.fingerprint'`
 
-- [ ] **Step 3: Implement `src/dwcollector/fingerprint.py`**
+- [ ] **Step 3: Implement `src/onionwatch/fingerprint.py`**
 
 ```python
 from __future__ import annotations
@@ -1133,7 +1132,7 @@ Expected: PASS (4 passed)
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/dwcollector/fingerprint.py tests/test_fingerprint.py
+git add src/onionwatch/fingerprint.py tests/test_fingerprint.py
 git commit -m "feat: simhash content fingerprint"
 ```
 
@@ -1142,7 +1141,7 @@ git commit -m "feat: simhash content fingerprint"
 ### Task 9: Verified-source ingestion + PGP match
 
 **Files:**
-- Create: `src/dwcollector/verify.py`, `verified_sources.toml` (example), `tests/test_verify.py`
+- Create: `src/onionwatch/verify.py`, `verified_sources.toml` (example), `tests/test_verify.py`
 
 **Interfaces:**
 - Consumes: `load_verified_sources` (Task 1), `discover.onion_host`.
@@ -1151,7 +1150,7 @@ git commit -m "feat: simhash content fingerprint"
 - [ ] **Step 1: Write the failing test** — `tests/test_verify.py`
 
 ```python
-from dwcollector.verify import is_verified, pgp_fingerprint_in_page, pgp_matches
+from onionwatch.verify import is_verified, pgp_fingerprint_in_page, pgp_matches
 
 VERIFIED = {
     "verified_onions": ["aaaaaaaaaaaaaaaa.onion"],
@@ -1177,9 +1176,9 @@ def test_pgp_matches():
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `.venv/bin/pytest tests/test_verify.py -v`
-Expected: FAIL — `ModuleNotFoundError: No module named 'dwcollector.verify'`
+Expected: FAIL — `ModuleNotFoundError: No module named 'onionwatch.verify'`
 
-- [ ] **Step 3: Implement `src/dwcollector/verify.py`**
+- [ ] **Step 3: Implement `src/onionwatch/verify.py`**
 
 ```python
 from __future__ import annotations
@@ -1236,7 +1235,7 @@ Expected: PASS (3 passed)
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/dwcollector/verify.py verified_sources.toml tests/test_verify.py
+git add src/onionwatch/verify.py verified_sources.toml tests/test_verify.py
 git commit -m "feat: verified-source and PGP fingerprint matching"
 ```
 
@@ -1245,7 +1244,7 @@ git commit -m "feat: verified-source and PGP fingerprint matching"
 ### Task 10: Clustering + canonical selection
 
 **Files:**
-- Create: `src/dwcollector/cluster.py`, `tests/test_cluster.py`
+- Create: `src/onionwatch/cluster.py`, `tests/test_cluster.py`
 
 **Interfaces:**
 - Consumes: `fingerprint.from_hex/hamming`, `verify.is_verified`, `Database`.
@@ -1254,9 +1253,9 @@ git commit -m "feat: verified-source and PGP fingerprint matching"
 - [ ] **Step 1: Write the failing test** — `tests/test_cluster.py`
 
 ```python
-from dwcollector.cluster import cluster_rows, choose_canonical, run_clustering
-from dwcollector.fingerprint import simhash, to_hex
-from dwcollector.db import Database
+from onionwatch.cluster import cluster_rows, choose_canonical, run_clustering
+from onionwatch.fingerprint import simhash, to_hex
+from onionwatch.db import Database
 
 def row(url, sh, first_seen="2026-07-21T00:00:00", inbound=0, host=None):
     return {"url": url, "content_simhash": sh,
@@ -1308,9 +1307,9 @@ def test_run_clustering_writes_trust(tmp_path):
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `.venv/bin/pytest tests/test_cluster.py -v`
-Expected: FAIL — `ModuleNotFoundError: No module named 'dwcollector.cluster'`
+Expected: FAIL — `ModuleNotFoundError: No module named 'onionwatch.cluster'`
 
-- [ ] **Step 3: Implement `src/dwcollector/cluster.py`**
+- [ ] **Step 3: Implement `src/onionwatch/cluster.py`**
 
 ```python
 from __future__ import annotations
@@ -1396,7 +1395,7 @@ Expected: PASS (4 passed)
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/dwcollector/cluster.py tests/test_cluster.py
+git add src/onionwatch/cluster.py tests/test_cluster.py
 git commit -m "feat: clone clustering and canonical selection with trust levels"
 ```
 
@@ -1405,7 +1404,7 @@ git commit -m "feat: clone clustering and canonical selection with trust levels"
 ### Task 11: Leak hunt
 
 **Files:**
-- Create: `src/dwcollector/hunt.py`, `tests/test_hunt.py`
+- Create: `src/onionwatch/hunt.py`, `tests/test_hunt.py`
 
 **Interfaces:**
 - Consumes: `Database.canonical_trusted_urls`, `Database.record_leak_hit`, `TorClient.fetch`, `discover.visible_text`.
@@ -1415,9 +1414,9 @@ git commit -m "feat: clone clustering and canonical selection with trust levels"
 
 ```python
 import pytest
-from dwcollector.hunt import match_terms, hunt
-from dwcollector.tor_client import FetchResult
-from dwcollector.db import Database
+from onionwatch.hunt import match_terms, hunt
+from onionwatch.tor_client import FetchResult
+from onionwatch.db import Database
 
 def test_match_terms_returns_context():
     text = "leak of acme corp dataset including admin@acme.com and more records"
@@ -1452,9 +1451,9 @@ async def test_hunt_records_hits(tmp_path):
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `.venv/bin/pytest tests/test_hunt.py -v`
-Expected: FAIL — `ModuleNotFoundError: No module named 'dwcollector.hunt'`
+Expected: FAIL — `ModuleNotFoundError: No module named 'onionwatch.hunt'`
 
-- [ ] **Step 3: Implement `src/dwcollector/hunt.py`**
+- [ ] **Step 3: Implement `src/onionwatch/hunt.py`**
 
 ```python
 from __future__ import annotations
@@ -1502,7 +1501,7 @@ Expected: PASS (3 passed)
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/dwcollector/hunt.py tests/test_hunt.py
+git add src/onionwatch/hunt.py tests/test_hunt.py
 git commit -m "feat: leak hunt over canonical trusted sites"
 ```
 
@@ -1511,16 +1510,16 @@ git commit -m "feat: leak hunt over canonical trusted sites"
 ### Task 12: CLI + Docker/Tor packaging
 
 **Files:**
-- Create: `src/dwcollector/cli.py`, `Dockerfile`, `docker-compose.yml`, `tor/torrc`, `tests/test_cli.py`
+- Create: `src/onionwatch/cli.py`, `Dockerfile`, `docker-compose.yml`, `tor/torrc`, `tests/test_cli.py`
 
 **Interfaces:**
 - Consumes: everything above.
-- Produces: console entrypoint `dwcollector` with subcommands `crawl [--resume]`, `probe`, `categorize`, `cluster`, `hunt --terms FILE`, `export --format {csv,json} [--trust T] [--category C]`, `stats`. `main(argv:list[str]|None=None)->int`.
+- Produces: console entrypoint `onionwatch` with subcommands `crawl [--resume]`, `probe`, `categorize`, `cluster`, `hunt --terms FILE`, `export --format {csv,json} [--trust T] [--category C]`, `stats`. `main(argv:list[str]|None=None)->int`.
 
 - [ ] **Step 1: Write the failing test** — `tests/test_cli.py`
 
 ```python
-from dwcollector.cli import build_parser
+from onionwatch.cli import build_parser
 
 def test_parser_has_subcommands():
     p = build_parser()
@@ -1544,9 +1543,9 @@ def test_crawl_resume_flag():
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `.venv/bin/pytest tests/test_cli.py -v`
-Expected: FAIL — `ModuleNotFoundError: No module named 'dwcollector.cli'`
+Expected: FAIL — `ModuleNotFoundError: No module named 'onionwatch.cli'`
 
-- [ ] **Step 3: Implement `src/dwcollector/cli.py`**
+- [ ] **Step 3: Implement `src/onionwatch/cli.py`**
 
 ```python
 from __future__ import annotations
@@ -1571,9 +1570,9 @@ def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="dwcollector")
+    p = argparse.ArgumentParser(prog="onionwatch")
     p.add_argument("--config", default="config.toml")
-    p.add_argument("--db", default="data/dwcollector.db")
+    p.add_argument("--db", default="data/onionwatch.db")
     sub = p.add_subparsers(dest="command", required=True)
     c = sub.add_parser("crawl"); c.add_argument("--resume", action="store_true")
     c.add_argument("--seeds", default="seeds.txt")
@@ -1685,12 +1684,12 @@ if __name__ == "__main__":
 
 ```toml
 [project]
-name = "dwcollector"
+name = "onionwatch"
 version = "0.1.0"
 requires-python = ">=3.12"
 
 [project.scripts]
-dwcollector = "dwcollector.cli:main"
+onionwatch = "onionwatch.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -1722,7 +1721,7 @@ COPY requirements.txt pyproject.toml ./
 COPY src ./src
 RUN pip install --no-cache-dir -r requirements.txt && pip install --no-cache-dir -e .
 COPY config.toml categories.toml ./
-ENTRYPOINT ["dwcollector"]
+ENTRYPOINT ["onionwatch"]
 CMD ["stats"]
 ```
 
@@ -1739,7 +1738,7 @@ services:
       - "9051"
     restart: unless-stopped
 
-  dwcollector:
+  onionwatch:
     build: .
     depends_on:
       - tor
@@ -1750,7 +1749,7 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
     # override the default (stats) at run time, e.g.:
-    #   docker compose run --rm dwcollector crawl
+    #   docker compose run --rm onionwatch crawl
 ```
 
 - [ ] **Step 8: Run tests to verify pass**
@@ -1766,7 +1765,7 @@ Expected: PASS (all tasks' tests green)
 - [ ] **Step 10: Commit**
 
 ```bash
-git add src/dwcollector/cli.py pyproject.toml Dockerfile docker-compose.yml tor/torrc tests/test_cli.py
+git add src/onionwatch/cli.py pyproject.toml Dockerfile docker-compose.yml tor/torrc tests/test_cli.py
 git commit -m "feat: CLI entrypoint and docker/tor packaging"
 ```
 
@@ -1775,7 +1774,7 @@ git commit -m "feat: CLI entrypoint and docker/tor packaging"
 ### Task 13: Wire fingerprint + categorise + snippet into crawl; README
 
 **Files:**
-- Modify: `src/dwcollector/discover.py` (store snippet, simhash, category during crawl)
+- Modify: `src/onionwatch/discover.py` (store snippet, simhash, category during crawl)
 - Create: `README.md`
 - Modify: `tests/test_discover.py` (assert enrichment persisted)
 
@@ -1807,7 +1806,7 @@ async def test_crawl_enriches_rows(tmp_path):
 Run: `.venv/bin/pytest tests/test_discover.py -k enriches -v`
 Expected: FAIL — `crawl() got an unexpected keyword argument 'rules'`
 
-- [ ] **Step 3: Update `crawl` in `src/dwcollector/discover.py`**
+- [ ] **Step 3: Update `crawl` in `src/onionwatch/discover.py`**
 
 Change the signature and the alive-branch enrichment:
 
@@ -1856,7 +1855,7 @@ Expected: PASS (all discover tests, including enrichment)
 - [ ] **Step 5: Create `README.md`**
 
 ```markdown
-# dwcollector
+# onionwatch
 
 A Tor-based threat-hunting crawler: deep-discovers `.onion` sites across all
 categories, checks liveness through a containerised Tor, categorises them,
@@ -1878,21 +1877,21 @@ Provide `seeds.txt` (one URL per line) and, for clone detection,
 ## Run with Docker (recommended)
 
     docker compose up -d tor
-    docker compose run --rm dwcollector crawl
-    docker compose run --rm dwcollector cluster
-    docker compose run --rm dwcollector hunt --terms client.txt
+    docker compose run --rm onionwatch crawl
+    docker compose run --rm onionwatch cluster
+    docker compose run --rm onionwatch hunt --terms client.txt
 
 ## Run on host (uses your Tor on 127.0.0.1:9050)
 
 Set `socks_proxy = "socks5://127.0.0.1:9050"` in `config.toml`, then:
 
-    dwcollector crawl            # deep discovery + liveness + categorise + fingerprint
-    dwcollector cluster          # original-vs-clone detection, trust levels
-    dwcollector hunt --terms client.txt
-    dwcollector export --format csv --trust verified --category leak-site
-    dwcollector stats
+    onionwatch crawl            # deep discovery + liveness + categorise + fingerprint
+    onionwatch cluster          # original-vs-clone detection, trust levels
+    onionwatch hunt --terms client.txt
+    onionwatch export --format csv --trust verified --category leak-site
+    onionwatch stats
 
-Crawls are resumable: re-run `dwcollector crawl --resume` to continue the frontier.
+Crawls are resumable: re-run `onionwatch crawl --resume` to continue the frontier.
 
 ## Pipeline
 
@@ -1907,7 +1906,7 @@ crawl → (fingerprint + categorise inline) → cluster → hunt
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/dwcollector/discover.py tests/test_discover.py README.md
+git add src/onionwatch/discover.py tests/test_discover.py README.md
 git commit -m "feat: enrich crawl with title/snippet/simhash/category; add README"
 ```
 
@@ -1925,8 +1924,8 @@ git commit -m "feat: enrich crawl with title/snippet/simhash/category; add READM
 
 ```python
 import pytest
-from dwcollector.config import Config
-from dwcollector.tor_client import TorClient
+from onionwatch.config import Config
+from onionwatch.tor_client import TorClient
 
 @pytest.mark.live
 @pytest.mark.asyncio

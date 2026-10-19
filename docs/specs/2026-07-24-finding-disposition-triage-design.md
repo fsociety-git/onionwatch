@@ -8,7 +8,7 @@ association. This spec is the foundation the others build on.
 
 ## Problem
 
-dwcollector detects and alerts, but an analyst can't *work* the findings. The
+onionwatch detects and alerts, but an analyst can't *work* the findings. The
 `findings` table has a machine-owned `status` (`open`/`resolved`, driven by the
 reconcilers each cycle) but nothing analyst-owned: no way to mark a false
 positive, no notes, no history, no triage queue. So a recurring false match
@@ -117,14 +117,14 @@ passed to `emit` already carries `disposition`. Stickiness needs no code —
 
 ### 4. CLI commands (`cli.py`)
 
-- **`triage`** — `dwcollector triage` prints the queue (`triage_queue()`), one
+- **`triage`** — `onionwatch triage` prints the queue (`triage_queue()`), one
   line per finding incl. `finding_id`, severity, kind, term/host. Read-only.
-- **`disposition`** — `dwcollector disposition <finding_id>
+- **`disposition`** — `onionwatch disposition <finding_id>
   <new|confirmed|false_positive|dismissed> [--note TEXT] [--by ACTOR]` →
   validate the finding exists (`get_finding_by_id`), then `set_disposition`.
-- **`note`** — `dwcollector note <finding_id> --text TEXT [--by ACTOR]` →
+- **`note`** — `onionwatch note <finding_id> --text TEXT [--by ACTOR]` →
   `add_note` (comment without changing disposition).
-- **`history`** — `dwcollector history <finding_id>` → print
+- **`history`** — `onionwatch history <finding_id>` → print
   `disposition_history` rows.
 - Extend **`alerts`** (`_run_alerts`) to include the `disposition` in each line.
 

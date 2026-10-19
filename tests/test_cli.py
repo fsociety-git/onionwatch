@@ -1,10 +1,10 @@
 from types import SimpleNamespace
 
-from dwcollector.cli import build_parser, run_cycle, supervisor_loop, _run_alerts
-from dwcollector.config import Config, load_config
-from dwcollector.db import Database
-from dwcollector.hunt import HuntOutcome
-from dwcollector.tor_client import FetchResult
+from onionwatch.cli import build_parser, run_cycle, supervisor_loop, _run_alerts
+from onionwatch.config import Config, load_config
+from onionwatch.db import Database
+from onionwatch.hunt import HuntOutcome
+from onionwatch.tor_client import FetchResult
 
 
 class _StubClient:
@@ -108,7 +108,7 @@ def test_supervisor_loop_sleeps_between_cycles_not_after_last():
 
 
 def test_run_cycle_isolates_crawl_exception(tmp_path, monkeypatch):
-    import dwcollector.cli as cli_mod
+    import onionwatch.cli as cli_mod
 
     db = Database(str(tmp_path / "t.db"))
     db.init_schema()
@@ -125,7 +125,7 @@ def test_run_cycle_isolates_crawl_exception(tmp_path, monkeypatch):
 
 
 def test_run_cycle_isolates_cluster_exception(tmp_path, monkeypatch):
-    import dwcollector.cli as cli_mod
+    import onionwatch.cli as cli_mod
 
     db = Database(str(tmp_path / "t.db"))
     db.init_schema()
@@ -142,7 +142,7 @@ def test_run_cycle_isolates_cluster_exception(tmp_path, monkeypatch):
 
 
 def test_run_cycle_hunts_and_alerts(tmp_path, monkeypatch):
-    import dwcollector.cli as cli_mod
+    import onionwatch.cli as cli_mod
 
     db = Database(str(tmp_path / "t.db")); db.init_schema()
     # a verified canonical site to hunt
@@ -178,7 +178,7 @@ def test_run_cycle_hunts_and_alerts(tmp_path, monkeypatch):
 
 
 def test_run_cycle_skips_hunt_without_watchlist(tmp_path, monkeypatch):
-    import dwcollector.cli as cli_mod
+    import onionwatch.cli as cli_mod
 
     db = Database(str(tmp_path / "t.db")); db.init_schema()
     cfg = Config(watchlist_terms=str(tmp_path / "missing.txt"),
@@ -201,7 +201,7 @@ def test_run_cycle_skips_hunt_without_watchlist(tmp_path, monkeypatch):
 
 
 def test_run_cycle_reverifies_anchor_identity(tmp_path, monkeypatch):
-    import dwcollector.cli as cli_mod
+    import onionwatch.cli as cli_mod
     db = Database(str(tmp_path / "t.db")); db.init_schema()
     u = "http://aaaaaaaaaaaaaaaa.onion/"
     db.upsert_url(u, "aaaaaaaaaaaaaaaa.onion", "crawled", 1, "2026-07-23T00:00:00")
@@ -235,7 +235,7 @@ def test_run_cycle_reverifies_anchor_identity(tmp_path, monkeypatch):
 # on this path too, not just inside run_cycle's supervisor loop. ---
 
 def test_run_hunt_passes_verified_sources_to_hunt(tmp_path, monkeypatch):
-    import dwcollector.cli as cli_mod
+    import onionwatch.cli as cli_mod
 
     known_verified = {
         "pgp": {"aaaaaaaaaaaaaaaa.onion": "AAAA BBBB"},
@@ -297,7 +297,7 @@ def test_alerts_command_lists_findings(tmp_path, capsys):
 
 
 def test_run_cycle_passes_sources_to_crawl(tmp_path, monkeypatch):
-    import dwcollector.cli as cli_mod
+    import onionwatch.cli as cli_mod
     db = Database(str(tmp_path / "t.db")); db.init_schema()
     cfg = Config(watchlist_terms=str(tmp_path / "none.txt"),
                  alerts_path=str(tmp_path / "a.jsonl"))
@@ -325,7 +325,7 @@ def test_run_cycle_passes_sources_to_crawl(tmp_path, monkeypatch):
 
 
 def test_run_crawl_passes_sources(tmp_path, monkeypatch):
-    import dwcollector.cli as cli_mod
+    import onionwatch.cli as cli_mod
     db = Database(str(tmp_path / "t.db")); db.init_schema()
     cfg = Config()
     src = [{"name": "s", "type": "index", "url": "http://i.onion/"}]
@@ -351,7 +351,7 @@ def test_run_crawl_passes_sources(tmp_path, monkeypatch):
 
 # --- Task 4: triage / disposition / note / history commands ---
 
-from dwcollector.cli import _run_triage, _run_disposition, _run_note, _run_history
+from onionwatch.cli import _run_triage, _run_disposition, _run_note, _run_history
 
 
 def _seed_finding(db, dedup="leak:http://x.onion/|acme.com", sev="critical"):
@@ -405,12 +405,12 @@ def test_alerts_command_shows_disposition(tmp_path, capsys):
     assert "confirmed" in capsys.readouterr().out
 
 
-from dwcollector.report import client_findings as _cf  # noqa: F401 (ensures import path)
+from onionwatch.report import client_findings as _cf  # noqa: F401 (ensures import path)
 
 
 def test_run_cycle_unions_client_terms(tmp_path, monkeypatch):
-    import dwcollector.cli as cli_mod
-    from dwcollector.hunt import HuntOutcome
+    import onionwatch.cli as cli_mod
+    from onionwatch.hunt import HuntOutcome
     db = Database(str(tmp_path / "t.db")); db.init_schema()
     (tmp_path / "wl.txt").write_text("baseterm\n")
     cfg = Config(watchlist_terms=str(tmp_path / "wl.txt"),
@@ -435,8 +435,8 @@ def test_run_cycle_unions_client_terms(tmp_path, monkeypatch):
 
 
 def test_report_command_json_and_unknown_client(tmp_path, capsys, monkeypatch):
-    import dwcollector.cli as cli_mod
-    from dwcollector.cli import build_parser, _run_report
+    import onionwatch.cli as cli_mod
+    from onionwatch.cli import build_parser, _run_report
     db = Database(str(tmp_path / "t.db")); db.init_schema()
     db.open_finding("leak", "leak:http://x.onion/|acme.com", "http://x.onion/",
                     "x.onion", "acme.com", "critical", "ev", "2026-07-24T00:00:00")
@@ -455,8 +455,8 @@ def test_report_command_json_and_unknown_client(tmp_path, capsys, monkeypatch):
 
 
 def test_report_all_flag_includes_dismissed(tmp_path, capsys, monkeypatch):
-    import dwcollector.cli as cli_mod
-    from dwcollector.cli import build_parser, _run_report
+    import onionwatch.cli as cli_mod
+    from onionwatch.cli import build_parser, _run_report
     db = Database(str(tmp_path / "t.db")); db.init_schema()
     db.open_finding("leak", "leak:http://x.onion/|acme.com", "http://x.onion/",
                     "x.onion", "acme.com", "critical", "ev", "2026-07-24T00:00:00")
@@ -473,7 +473,7 @@ def test_report_all_flag_includes_dismissed(tmp_path, capsys, monkeypatch):
 
 def test_report_case_command(tmp_path, capsys):
     import json as _json
-    from dwcollector.cli import build_parser, _run_report
+    from onionwatch.cli import build_parser, _run_report
     db = Database(str(tmp_path / "t.db")); db.init_schema()
     cid = db.create_case("Acme breach", "Acme", "an@corp", "2026-07-24T00:00:00")
     db.open_finding("leak", "leak:x", "http://x.onion/", "x.onion", "acme.com",
@@ -501,7 +501,7 @@ def test_report_case_command(tmp_path, capsys):
 
 def test_report_case_empty_dossier(tmp_path, capsys):
     import json as _json
-    from dwcollector.cli import build_parser, _run_report
+    from onionwatch.cli import build_parser, _run_report
     db = Database(str(tmp_path / "t.db")); db.init_schema()
 
     # Create a case with NO findings assigned
@@ -525,7 +525,7 @@ def test_report_case_empty_dossier(tmp_path, capsys):
 
 def test_report_requires_exactly_one_target():
     import pytest
-    from dwcollector.cli import build_parser
+    from onionwatch.cli import build_parser
     with pytest.raises(SystemExit):                     # neither --client nor --case
         build_parser().parse_args(["report"])
     with pytest.raises(SystemExit):                     # both -> mutually exclusive
@@ -534,7 +534,7 @@ def test_report_requires_exactly_one_target():
 
 # --- Task 3: nested `case` CLI command group ---
 
-from dwcollector.cli import build_parser, _run_case
+from onionwatch.cli import build_parser, _run_case
 
 
 def _seed_case_finding(db, dedup="leak:http://x.onion/|acme.com"):
@@ -606,8 +606,8 @@ def test_case_list_and_note(tmp_path, capsys):
 
 
 def test_report_command_shows_cases(tmp_path, capsys, monkeypatch):
-    import dwcollector.cli as cli_mod
-    from dwcollector.cli import build_parser, _run_report
+    import onionwatch.cli as cli_mod
+    from onionwatch.cli import build_parser, _run_report
     db = Database(str(tmp_path / "t.db")); db.init_schema()
     db.open_finding("leak", "leak:http://x.onion/|acme.com", "http://x.onion/",
                     "x.onion", "acme.com", "critical", "ev", "2026-07-24T00:00:00")
@@ -626,7 +626,7 @@ def test_report_command_shows_cases(tmp_path, capsys, monkeypatch):
 
 def test_listings_command_json_and_filters(tmp_path, capsys):
     import json as _json
-    from dwcollector.cli import build_parser, _run_listings
+    from onionwatch.cli import build_parser, _run_listings
     db = Database(str(tmp_path / "t.db")); db.init_schema()
     db.replace_listings("http://a.onion/1", "a.onion", [
         {"price_value": 0.05, "currency": "BTC", "price_raw": "0.05 BTC", "product_text": "cocaine grams"},
@@ -650,7 +650,7 @@ def test_listings_command_json_and_filters(tmp_path, capsys):
 
 
 def test_listings_command_empty_ok(tmp_path, capsys):
-    from dwcollector.cli import build_parser, _run_listings
+    from onionwatch.cli import build_parser, _run_listings
     db = Database(str(tmp_path / "t.db")); db.init_schema()
     # table format, no rows -> valid output, no crash
     _run_listings(db, build_parser().parse_args(["listings"]))
@@ -659,7 +659,7 @@ def test_listings_command_empty_ok(tmp_path, capsys):
 
 
 def test_run_cycle_creates_market_listing_findings(tmp_path, monkeypatch):
-    import dwcollector.cli as cli_mod
+    import onionwatch.cli as cli_mod
     db = Database(str(tmp_path / "t.db")); db.init_schema()
     db.replace_listings("http://m.onion/1", "m.onion", [
         {"price_value": 0.05, "currency": "BTC", "price_raw": "0.05 BTC",
@@ -681,7 +681,7 @@ def test_run_cycle_creates_market_listing_findings(tmp_path, monkeypatch):
 
 
 def test_run_cycle_no_listing_findings_when_extract_off(tmp_path, monkeypatch):
-    import dwcollector.cli as cli_mod
+    import onionwatch.cli as cli_mod
     db = Database(str(tmp_path / "t.db")); db.init_schema()
     db.replace_listings("http://m.onion/1", "m.onion", [
         {"price_value": 0.05, "currency": "BTC", "price_raw": "0.05 BTC",
@@ -700,7 +700,7 @@ def test_run_cycle_no_listing_findings_when_extract_off(tmp_path, monkeypatch):
 
 
 def test_run_cycle_no_listing_findings_when_watchlist_empty(tmp_path, monkeypatch):
-    import dwcollector.cli as cli_mod
+    import onionwatch.cli as cli_mod
     db = Database(str(tmp_path / "t.db")); db.init_schema()
     db.replace_listings("http://m.onion/1", "m.onion", [
         {"price_value": 0.05, "currency": "BTC", "price_raw": "0.05 BTC",

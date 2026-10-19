@@ -1,7 +1,7 @@
 import httpx
 import pytest
-from dwcollector.config import Config
-from dwcollector.tor_client import TorClient
+from onionwatch.config import Config
+from onionwatch.tor_client import TorClient
 
 def handler_ok(request):
     return httpx.Response(200, text="<html><title>ok</title></html>")
@@ -34,7 +34,7 @@ async def test_fetch_retries_then_fails():
 async def test_fetch_does_not_sleep_after_final_attempt(monkeypatch):
     # Fix 5: with max_retries attempts there should be exactly max_retries-1
     # backoff sleeps -- no wasted sleep after the last failed attempt.
-    import dwcollector.tor_client as tc
+    import onionwatch.tor_client as tc
     sleeps = []
 
     async def fake_sleep(secs):

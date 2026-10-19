@@ -1,4 +1,4 @@
-from dwcollector.db import Database
+from onionwatch.db import Database
 
 def make_db(tmp_path):
     db = Database(str(tmp_path / "t.db"))

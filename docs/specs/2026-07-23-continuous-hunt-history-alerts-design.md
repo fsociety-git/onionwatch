@@ -6,7 +6,7 @@
 
 ## Problem
 
-dwcollector today *records* but does not *warn*. Three gaps make it a passive
+onionwatch today *records* but does not *warn*. Three gaps make it a passive
 collector rather than a monitoring service:
 
 1. **No history.** The `urls` table holds only current state — every crawl
@@ -187,7 +187,7 @@ The manual `hunt --terms` command is unchanged and does **not** auto-reconcile
 ### 6. New CLI command — `alerts`
 
 ```
-dwcollector alerts [--status open|resolved|all]   # default: open
+onionwatch alerts [--status open|resolved|all]   # default: open
 ```
 
 Lists findings with lifecycle state (kind, severity, url, term, status,

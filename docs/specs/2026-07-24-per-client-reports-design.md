@@ -8,7 +8,7 @@ Follow-on analyst-workflow spec: case management.
 
 ## Problem
 
-dwcollector can now detect, alert, triage, and disposition findings — but there
+onionwatch can now detect, alert, triage, and disposition findings — but there
 is no way to produce a **client-facing report** of a given client's exposures.
 The watchlist is a flat `terms.txt`; a finding records the matched `term` but
 nothing ties a term to a client (`acme-corp.com`, `billing@acme-corp.com`, and
@@ -136,7 +136,7 @@ the masked evidence snippet.
 ### 5. CLI (`cli.py`)
 
 ```
-dwcollector report --client "Acme Corp" [--format md|json] [--since DATE] [--all]
+onionwatch report --client "Acme Corp" [--format md|json] [--since DATE] [--all]
 ```
 
 `_run_report(cfg, db, args)`: `clients = load_clients("clients.toml")`; find the

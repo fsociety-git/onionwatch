@@ -1,6 +1,5 @@
 # Listing → Hunt Finding Integration Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Turn a market listing whose product text matches a watchlist term into a `market_listing` finding that flows into the existing alert/triage/disposition/case machinery.
 
@@ -32,8 +31,8 @@ Interfaces this plan relies on (all exist):
 
 ## File Structure
 
-- `src/dwcollector/alerts.py` (modify) — `LISTING_SEVERITY`, `find_matches` import, `_listing_snippet`, `reconcile_listing_matches`, and `market_listing` branches in `_title`/`_body`.
-- `src/dwcollector/cli.py` (modify) — import the reconciler; call it in `run_cycle` after `reconcile_anchor_identity`.
+- `src/onionwatch/alerts.py` (modify) — `LISTING_SEVERITY`, `find_matches` import, `_listing_snippet`, `reconcile_listing_matches`, and `market_listing` branches in `_title`/`_body`.
+- `src/onionwatch/cli.py` (modify) — import the reconciler; call it in `run_cycle` after `reconcile_anchor_identity`.
 - `tests/test_alerts.py` (modify) — reconciler + alert-copy tests.
 - `tests/test_cli.py` (modify) — `run_cycle` wiring tests.
 - `README.md` (modify) — document the feature.
@@ -43,7 +42,7 @@ Interfaces this plan relies on (all exist):
 ### Task 1: `reconcile_listing_matches` + evidence + alert copy (`alerts.py`)
 
 **Files:**
-- Modify: `src/dwcollector/alerts.py` (imports ~line 1-4; severity constants ~line 7-10; `_title` ~line 27-45; `_body` ~line 47-57; add new functions near `reconcile_leaks` ~line 104)
+- Modify: `src/onionwatch/alerts.py` (imports ~line 1-4; severity constants ~line 7-10; `_title` ~line 27-45; `_body` ~line 47-57; add new functions near `reconcile_leaks` ~line 104)
 - Test: `tests/test_alerts.py`
 
 **Interfaces:**
@@ -55,7 +54,7 @@ Interfaces this plan relies on (all exist):
 Add to `tests/test_alerts.py` (the file already imports `Database`, `emit`, and has `_cfg`; add `reconcile_listing_matches` to the imports):
 
 ```python
-from dwcollector.alerts import reconcile_listing_matches
+from onionwatch.alerts import reconcile_listing_matches
 
 
 def _listing(price_raw, product_text, price_value=None, currency="USD"):
@@ -152,7 +151,7 @@ def test_reconcile_listing_no_listings_returns_empty(tmp_path):
 
 
 def test_market_listing_alert_copy():
-    from dwcollector.alerts import _title, _body
+    from onionwatch.alerts import _title, _body
     f = {"kind": "market_listing", "term": "acme-db", "host": "m.onion",
          "url": "http://m.onion/1", "context_snippet": "[0.05 BTC] acme-db 0.05 BTC"}
     t_open, t_res = _title(f, "opened"), _title(f, "resolved")
@@ -244,7 +243,7 @@ Expected: PASS (the eight new tests plus all pre-existing alerts tests).
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/dwcollector/alerts.py tests/test_alerts.py
+git add src/onionwatch/alerts.py tests/test_alerts.py
 git commit -m "feat: reconcile_listing_matches — market_listing findings from listings"
 ```
 
@@ -253,7 +252,7 @@ git commit -m "feat: reconcile_listing_matches — market_listing findings from 
 ### Task 2: `run_cycle` wiring (`cli.py`)
 
 **Files:**
-- Modify: `src/dwcollector/cli.py` (alerts import ~line 21; `run_cycle` after `reconcile_anchor_identity` ~line 430)
+- Modify: `src/onionwatch/cli.py` (alerts import ~line 21; `run_cycle` after `reconcile_anchor_identity` ~line 430)
 - Test: `tests/test_cli.py`
 
 **Interfaces:**
@@ -266,7 +265,7 @@ Add to `tests/test_cli.py` (the file already imports `run_cycle`, `Config`, `Sim
 
 ```python
 def test_run_cycle_creates_market_listing_findings(tmp_path, monkeypatch):
-    import dwcollector.cli as cli_mod
+    import onionwatch.cli as cli_mod
     db = Database(str(tmp_path / "t.db")); db.init_schema()
     db.replace_listings("http://m.onion/1", "m.onion", [
         {"price_value": 0.05, "currency": "BTC", "price_raw": "0.05 BTC",
@@ -288,7 +287,7 @@ def test_run_cycle_creates_market_listing_findings(tmp_path, monkeypatch):
 
 
 def test_run_cycle_no_listing_findings_when_extract_off(tmp_path, monkeypatch):
-    import dwcollector.cli as cli_mod
+    import onionwatch.cli as cli_mod
     db = Database(str(tmp_path / "t.db")); db.init_schema()
     db.replace_listings("http://m.onion/1", "m.onion", [
         {"price_value": 0.05, "currency": "BTC", "price_raw": "0.05 BTC",
@@ -313,7 +312,7 @@ Expected: FAIL — `test_run_cycle_creates_market_listing_findings` finds no `ma
 
 - [ ] **Step 3: Wire the reconciler into `run_cycle`**
 
-Extend the alerts import in `src/dwcollector/cli.py` (currently line 21):
+Extend the alerts import in `src/onionwatch/cli.py` (currently line 21):
 
 ```python
 from .alerts import (reconcile_leaks, reconcile_dead_originals,
@@ -340,7 +339,7 @@ Expected: PASS — all green.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/dwcollector/cli.py tests/test_cli.py
+git add src/onionwatch/cli.py tests/test_cli.py
 git commit -m "feat: run_cycle generates market_listing findings when extraction is on"
 ```
 
@@ -360,7 +359,7 @@ In `README.md`, extend the existing `## Market-listing extraction (optional)` se
 
 ```markdown
 When listing extraction is on and a watchlist term (from `terms.txt` or a
-client's `clients.toml` terms) matches a listing's product text, dwcollector
+client's `clients.toml` terms) matches a listing's product text, onionwatch
 raises a **`market_listing` finding** (severity `high`) — "this identifier is
 being sold on market H." These findings flow into the same
 `alerts`/`triage`/`disposition`/`history` and case machinery as any other

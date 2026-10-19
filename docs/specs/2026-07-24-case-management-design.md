@@ -76,7 +76,7 @@ Every mutating method commits (existing convention).
 
 ### 3. CLI — nested `case` command group (`cli.py`)
 
-`case` uses argparse **nested subparsers** (`dwcollector case <action>`):
+`case` uses argparse **nested subparsers** (`onionwatch case <action>`):
 
 - `case create "<title>" [--client NAME] [--by ACTOR]` → prints the new `case_id`.
 - `case list [--client NAME] [--state STATE]` → one line per case (id, state,

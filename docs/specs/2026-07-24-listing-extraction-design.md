@@ -145,7 +145,7 @@ per-URL `try/except` in `handle`, so a malformed page cannot abort the crawl.
 ### 4. CLI (`cli.py`)
 
 ```
-dwcollector listings [--host H] [--currency C] [--min-price N] [--max-price N]
+onionwatch listings [--host H] [--currency C] [--min-price N] [--max-price N]
                      [--contains TEXT] [--format table|json]
 ```
 

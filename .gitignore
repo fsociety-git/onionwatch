@@ -1,10 +1,14 @@
 # Collected data & sources — never commit
-dwcollector.db
-dwcollector.db-*
+onionwatch.db
+onionwatch.db-*
 *.db
 data/
 seeds.txt
 verified_sources.toml
+terms.txt
+clients.toml
+sources.toml
+docker-compose.override.yml
 exports/
 *.csv
 *.jsonl
@@ -22,5 +26,7 @@ __pycache__/
 .idea/
 .vscode/
 
-# SDD scratch
+# AI-assistant / tool scratch
 .superpowers/
+.impeccable/
+.claude/

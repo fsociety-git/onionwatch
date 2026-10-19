@@ -1,4 +1,4 @@
-from dwcollector.config import load_config, load_categories, load_verified_sources
+from onionwatch.config import load_config, load_categories, load_verified_sources
 
 def test_load_config_defaults(tmp_path):
     cfg_file = tmp_path / "config.toml"
@@ -56,7 +56,7 @@ def test_load_verified_sources_lowercases_keys(tmp_path):
     )
 
 def test_alert_config_defaults():
-    from dwcollector.config import Config
+    from onionwatch.config import Config
     c = Config()
     assert c.watchlist_terms == "terms.txt"
     assert c.alerts_path == "data/alerts.jsonl"
@@ -76,12 +76,12 @@ def test_alert_config_parsed_from_toml(tmp_path):
 
 
 def test_pii_detectors_default_empty():
-    from dwcollector.config import Config
+    from onionwatch.config import Config
     assert Config().pii_detectors == []
 
 
 def test_pii_detectors_parsed_and_unknown_warned(tmp_path, capsys):
-    from dwcollector.config import load_config
+    from onionwatch.config import load_config
     p = tmp_path / "c.toml"
     p.write_text('pii_detectors = ["credit-card", "not-real", "us-ssn"]\n')
     c = load_config(str(p))
@@ -91,17 +91,17 @@ def test_pii_detectors_parsed_and_unknown_warned(tmp_path, capsys):
 
 
 def test_max_seeds_per_source_default():
-    from dwcollector.config import Config
+    from onionwatch.config import Config
     assert Config().max_seeds_per_source == 200
 
 
 def test_load_sources_missing_file_returns_empty(tmp_path):
-    from dwcollector.config import load_sources
+    from onionwatch.config import load_sources
     assert load_sources(str(tmp_path / "nope.toml")) == []
 
 
 def test_load_sources_parses_and_skips_malformed(tmp_path, capsys):
-    from dwcollector.config import load_sources
+    from onionwatch.config import load_sources
     p = tmp_path / "sources.toml"
     p.write_text(
         '[[source]]\n'
@@ -123,12 +123,12 @@ def test_load_sources_parses_and_skips_malformed(tmp_path, capsys):
 
 
 def test_load_clients_missing_file_returns_empty(tmp_path):
-    from dwcollector.config import load_clients
+    from onionwatch.config import load_clients
     assert load_clients(str(tmp_path / "nope.toml")) == []
 
 
 def test_load_clients_parses_and_skips_malformed(tmp_path, capsys):
-    from dwcollector.config import load_clients
+    from onionwatch.config import load_clients
     p = tmp_path / "clients.toml"
     p.write_text(
         '[[client]]\n'
@@ -143,7 +143,7 @@ def test_load_clients_parses_and_skips_malformed(tmp_path, capsys):
 
 
 def test_load_config_crawl_priority(tmp_path):
-    from dwcollector.config import load_config
+    from onionwatch.config import load_config
     cfg_file = tmp_path / "config.toml"
     cfg_file.write_text(
         "concurrency = 8\n"
@@ -158,7 +158,7 @@ def test_load_config_crawl_priority(tmp_path):
 
 
 def test_load_config_crawl_priority_absent_is_empty(tmp_path):
-    from dwcollector.config import load_config
+    from onionwatch.config import load_config
     cfg_file = tmp_path / "config.toml"
     cfg_file.write_text("concurrency = 8\n")
     cfg = load_config(str(cfg_file))
@@ -166,7 +166,7 @@ def test_load_config_crawl_priority_absent_is_empty(tmp_path):
 
 
 def test_priority_for_mapped_unmapped_and_default():
-    from dwcollector.config import priority_for
+    from onionwatch.config import priority_for
     weights = {"default": 5, "market": 100}
     assert priority_for("market", weights) == 100     # mapped
     assert priority_for("forum", weights) == 5        # unmapped -> default
@@ -176,7 +176,7 @@ def test_priority_for_mapped_unmapped_and_default():
 
 
 def test_crawl_priority_drops_non_integer_weights(tmp_path, capsys):
-    from dwcollector.config import load_config
+    from onionwatch.config import load_config
     cfg_file = tmp_path / "config.toml"
     cfg_file.write_text(
         "concurrency = 8\n"
@@ -192,7 +192,7 @@ def test_crawl_priority_drops_non_integer_weights(tmp_path, capsys):
 
 
 def test_crawl_priority_all_integers_no_warning(tmp_path, capsys):
-    from dwcollector.config import load_config
+    from onionwatch.config import load_config
     cfg_file = tmp_path / "config.toml"
     cfg_file.write_text(
         "concurrency = 8\n"

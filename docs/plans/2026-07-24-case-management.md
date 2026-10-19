@@ -1,6 +1,5 @@
 # Case Management — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let an analyst group findings into cases (incidents) with a three-state lifecycle, an optional client, and an append-only timeline, driven from a nested `case` CLI group and rolled up into the per-client report.
 
@@ -8,7 +7,7 @@
 
 **Tech Stack:** Python 3.11+, sqlite3 (stdlib), pytest. No new dependencies.
 
-**Spec:** `docs/superpowers/specs/2026-07-24-case-management-design.md`
+**Spec:** `docs/specs/2026-07-24-case-management-design.md`
 
 ## Global Constraints
 
@@ -26,7 +25,7 @@
 ### Task 1: Schema + migration + case create/read/list
 
 **Files:**
-- Modify: `src/dwcollector/db.py` (`SCHEMA`, `init_schema`, add `create_case`/`get_case`/`list_cases`)
+- Modify: `src/onionwatch/db.py` (`SCHEMA`, `init_schema`, add `create_case`/`get_case`/`list_cases`)
 - Test: `tests/test_db.py` (append)
 
 **Interfaces:**
@@ -149,7 +148,7 @@ Expected: all green (additive schema; existing callers unaffected).
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/dwcollector/db.py tests/test_db.py
+git add src/onionwatch/db.py tests/test_db.py
 git commit -m "feat: cases/case_log tables, findings.case_id, create/get/list_cases"
 ```
 
@@ -158,7 +157,7 @@ git commit -m "feat: cases/case_log tables, findings.case_id, create/get/list_ca
 ### Task 2: Case membership, state, notes, and reads
 
 **Files:**
-- Modify: `src/dwcollector/db.py`
+- Modify: `src/onionwatch/db.py`
 - Test: `tests/test_db.py` (append)
 
 **Interfaces:**
@@ -218,7 +217,7 @@ Expected: FAIL — `AttributeError: 'Database' object has no attribute 'assign_f
 
 - [ ] **Step 3: Write minimal implementation**
 
-Add to `src/dwcollector/db.py`:
+Add to `src/onionwatch/db.py`:
 
 ```python
     def _case_log(self, case_id, event, note, actor, now) -> None:
@@ -272,7 +271,7 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/dwcollector/db.py tests/test_db.py
+git add src/onionwatch/db.py tests/test_db.py
 git commit -m "feat: assign/unassign/state/note case methods + case_findings/history"
 ```
 
@@ -281,19 +280,19 @@ git commit -m "feat: assign/unassign/state/note case methods + case_findings/his
 ### Task 3: CLI — nested `case` command group
 
 **Files:**
-- Modify: `src/dwcollector/cli.py` (`build_parser`, add `_run_case`, `main` dispatch)
+- Modify: `src/onionwatch/cli.py` (`build_parser`, add `_run_case`, `main` dispatch)
 - Test: `tests/test_cli.py` (append)
 
 **Interfaces:**
 - Consumes: the Task 1–2 DB methods, `get_finding_by_id` (existing).
-- Produces: `dwcollector case {create|list|show|assign|unassign|state|note}`; `_run_case(db, args) -> int`.
+- Produces: `onionwatch case {create|list|show|assign|unassign|state|note}`; `_run_case(db, args) -> int`.
 
 - [ ] **Step 1: Write the failing test**
 
 Append to `tests/test_cli.py`:
 
 ```python
-from dwcollector.cli import build_parser, _run_case
+from onionwatch.cli import build_parser, _run_case
 
 
 def _seed_case_finding(db, dedup="leak:http://x.onion/|acme.com"):
@@ -464,7 +463,7 @@ Expected: all green.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/dwcollector/cli.py tests/test_cli.py
+git add src/onionwatch/cli.py tests/test_cli.py
 git commit -m "feat: nested case CLI group (create/list/show/assign/unassign/state/note)"
 ```
 
@@ -473,8 +472,8 @@ git commit -m "feat: nested case CLI group (create/list/show/assign/unassign/sta
 ### Task 4: Report rollup — Cases section in `report --client`
 
 **Files:**
-- Modify: `src/dwcollector/report.py` (`client_cases`, `build_report`, `render_markdown`)
-- Modify: `src/dwcollector/cli.py` (`_run_report` computes + passes cases; import `client_cases`)
+- Modify: `src/onionwatch/report.py` (`client_cases`, `build_report`, `render_markdown`)
+- Modify: `src/onionwatch/cli.py` (`_run_report` computes + passes cases; import `client_cases`)
 - Test: `tests/test_report.py`, `tests/test_cli.py` (append)
 
 **Interfaces:**
@@ -487,7 +486,7 @@ Append to `tests/test_report.py`:
 
 ```python
 def test_report_includes_client_cases(tmp_path):
-    from dwcollector.report import client_cases
+    from onionwatch.report import client_cases
     db = Database(str(tmp_path / "t.db")); db.init_schema()
     cid = db.create_case("Acme breach", "Acme", None, "2026-07-24T00:00:00")
     db.create_case("Other", "Beta", None, "2026-07-24T00:00:00")     # different client
@@ -513,8 +512,8 @@ Append to `tests/test_cli.py`:
 
 ```python
 def test_report_command_shows_cases(tmp_path, capsys, monkeypatch):
-    import dwcollector.cli as cli_mod
-    from dwcollector.cli import build_parser, _run_report
+    import onionwatch.cli as cli_mod
+    from onionwatch.cli import build_parser, _run_report
     db = Database(str(tmp_path / "t.db")); db.init_schema()
     db.open_finding("leak", "leak:http://x.onion/|acme.com", "http://x.onion/",
                     "x.onion", "acme.com", "critical", "ev", "2026-07-24T00:00:00")
@@ -536,7 +535,7 @@ Expected: FAIL — `ImportError: cannot import name 'client_cases'`
 
 - [ ] **Step 3: Write minimal implementation**
 
-Add to `src/dwcollector/report.py`:
+Add to `src/onionwatch/report.py`:
 
 ```python
 def client_cases(db, client_name: str) -> list[dict]:
@@ -570,7 +569,7 @@ In `render_markdown`, after the summary block and before the findings loop, add 
         lines.append("")
 ```
 
-In `src/dwcollector/cli.py`, import `client_cases` and pass cases in `_run_report`:
+In `src/onionwatch/cli.py`, import `client_cases` and pass cases in `_run_report`:
 
 ```python
 from .report import (client_findings, build_report, render_json, render_markdown,
@@ -595,7 +594,7 @@ Expected: all green.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/dwcollector/report.py src/dwcollector/cli.py tests/test_report.py tests/test_cli.py
+git add src/onionwatch/report.py src/onionwatch/cli.py tests/test_report.py tests/test_cli.py
 git commit -m "feat: client report Cases rollup (client_cases + build_report/render + wiring)"
 ```
 

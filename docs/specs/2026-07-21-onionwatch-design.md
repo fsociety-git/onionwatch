@@ -1,4 +1,4 @@
-# dwcollector — Design
+# onionwatch — Design
 
 **Date:** 2026-07-21
 **Status:** Approved (revised), pending implementation plan
@@ -37,7 +37,7 @@ names), but the recommended, reproducible setup is Docker Compose:
 docker-compose.yml
 ├── service: tor          # Tor daemon, exposes SOCKS 9050 (+ control 9051)
 │                         # torrc mounted from ./tor/torrc
-├── service: dwcollector  # built from Dockerfile, runs the CLI
+├── service: onionwatch  # built from Dockerfile, runs the CLI
 │                         # depends_on tor; mounts ./data for the DB
 └── (optional) tor-2..N   # extra Tor instances for parallel circuits/throughput
 ```
@@ -75,7 +75,7 @@ seeds.txt + Ahmia + verified lists ─► frontier (DB-backed) ─► N workers 
 
 ### 2. Liveness probe
 For each discovered `.onion` root: `alive`, `http_status`, `title`,
-`response_ms`, `last_checked`. `dwcollector probe` re-checks known URLs without
+`response_ms`, `last_checked`. `onionwatch probe` re-checks known URLs without
 discovery.
 
 ### 3. Categorisation (keyword rules)
@@ -105,7 +105,7 @@ clustering:
    <canonical url>`. Each URL gets a `trust` level:
    `verified` / `probable` / `unknown` / `suspected_clone`.
 
-`dwcollector cluster` runs/reruns this step over stored fingerprints (offline).
+`onionwatch cluster` runs/reruns this step over stored fingerprints (offline).
 Leak hunting and default exports operate on **canonical + trusted** sites only,
 filtering clones out — which is exactly the "only legit sites" requirement.
 
@@ -114,7 +114,7 @@ filtering clones out — which is exactly the "only legit sites" requirement.
 > are surfaced for operator review rather than silently trusted.
 
 ### 5. Leak hunt
-`dwcollector hunt --terms client.txt` scans **canonical legit sites** for client
+`onionwatch hunt --terms client.txt` scans **canonical legit sites** for client
 identifiers (domains, emails, keywords; regex supported):
 - Fetches page content of in-scope sites through Tor (content fetched
   transiently for matching).
@@ -127,7 +127,7 @@ Per-host rate limit, capped concurrency, request timeout, retry-with-backoff,
 configurable User-Agent, Tor circuit rotation on repeated failures. No auth, no
 form submission.
 
-## Data model — SQLite `dwcollector.db`
+## Data model — SQLite `onionwatch.db`
 
 ### `urls`
 | column | type | notes |
@@ -183,7 +183,7 @@ concurrency       = 8
 per_host_delay    = 2.0
 request_timeout   = 60.0
 max_retries       = 3
-user_agent        = "dwcollector/0.1"
+user_agent        = "onionwatch/0.1"
 ahmia_enabled     = true
 snippet_chars     = 500
 simhash_distance  = 3        # max Hamming distance = same site
@@ -200,23 +200,23 @@ Category → keyword/regex ruleset (see §3).
 ## CLI
 
 ```
-dwcollector crawl [--resume]         # deep discovery + liveness + fingerprint + categorise
-dwcollector probe                    # re-check liveness of known URLs
-dwcollector categorize               # re-apply categories.toml to snippets
-dwcollector cluster                  # (re)run clone/original detection
-dwcollector hunt --terms client.txt  # search canonical legit sites for client data
-dwcollector export --format csv|json [--trust verified --category leak-site]
-dwcollector stats                    # totals: alive / by source / category / trust / clusters
+onionwatch crawl [--resume]         # deep discovery + liveness + fingerprint + categorise
+onionwatch probe                    # re-check liveness of known URLs
+onionwatch categorize               # re-apply categories.toml to snippets
+onionwatch cluster                  # (re)run clone/original detection
+onionwatch hunt --terms client.txt  # search canonical legit sites for client data
+onionwatch export --format csv|json [--trust verified --category leak-site]
+onionwatch stats                    # totals: alive / by source / category / trust / clusters
 ```
 
 ## Project layout
 
 ```
-dwcollector/
+onionwatch/
 ├── docker-compose.yml
 ├── Dockerfile
 ├── tor/torrc
-├── src/dwcollector/
+├── src/onionwatch/
 │   ├── __init__.py
 │   ├── config.py        # load config.toml / categories.toml / verified_sources.toml
 │   ├── db.py            # schema, upserts, queries, frontier
@@ -230,7 +230,7 @@ dwcollector/
 │   ├── hunt.py          # leak search over canonical sites
 │   └── cli.py           # argparse entrypoint
 ├── tests/               # offline unit tests (mocked responses/HTML)
-├── data/                # dwcollector.db (gitignored)
+├── data/                # onionwatch.db (gitignored)
 ├── seeds.txt · config.toml · categories.toml · verified_sources.toml
 ├── requirements.txt · README.md · .gitignore
 ```

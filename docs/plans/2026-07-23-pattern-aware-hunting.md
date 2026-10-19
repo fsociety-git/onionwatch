@@ -1,6 +1,5 @@
 # Richer / Pattern-Aware Hunting — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Broaden leak hunting beyond exact-substring matching to catch disguised identifiers (defang, encoding, credential-pairs) and structured PII (card/IBAN/SSN), feeding every richer match through the existing `leak_hits → reconcile_leaks → finding → alert` pipeline.
 
@@ -8,7 +7,7 @@
 
 **Tech Stack:** Python 3.11+, stdlib only (base64, binascii, re, unicodedata, urllib.parse), pytest.
 
-**Spec:** `docs/superpowers/specs/2026-07-23-pattern-aware-hunting-design.md`
+**Spec:** `docs/specs/2026-07-23-pattern-aware-hunting-design.md`
 
 ## Global Constraints
 
@@ -26,7 +25,7 @@
 ### Task 1: `matching.py` scaffold — `Match` + `normalize_defang`
 
 **Files:**
-- Create: `src/dwcollector/matching.py`
+- Create: `src/onionwatch/matching.py`
 - Test: `tests/test_matching.py` (create)
 
 **Interfaces:**
@@ -37,7 +36,7 @@
 Create `tests/test_matching.py`:
 
 ```python
-from dwcollector.matching import Match, normalize_defang
+from onionwatch.matching import Match, normalize_defang
 
 
 def test_match_dataclass_defaults():
@@ -62,11 +61,11 @@ def test_normalize_defang_zero_width_and_case_and_homoglyph():
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `pytest tests/test_matching.py -v`
-Expected: FAIL — `ModuleNotFoundError: No module named 'dwcollector.matching'`
+Expected: FAIL — `ModuleNotFoundError: No module named 'onionwatch.matching'`
 
 - [ ] **Step 3: Write minimal implementation**
 
-Create `src/dwcollector/matching.py`:
+Create `src/onionwatch/matching.py`:
 
 ```python
 from __future__ import annotations
@@ -110,7 +109,7 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/dwcollector/matching.py tests/test_matching.py
+git add src/onionwatch/matching.py tests/test_matching.py
 git commit -m "feat: matching.py scaffold with Match and normalize_defang"
 ```
 
@@ -119,7 +118,7 @@ git commit -m "feat: matching.py scaffold with Match and normalize_defang"
 ### Task 2: Encoders — `encodings_of`
 
 **Files:**
-- Modify: `src/dwcollector/matching.py`
+- Modify: `src/onionwatch/matching.py`
 - Test: `tests/test_matching.py` (append)
 
 **Interfaces:**
@@ -131,7 +130,7 @@ Append to `tests/test_matching.py`:
 
 ```python
 import base64
-from dwcollector.matching import encodings_of
+from onionwatch.matching import encodings_of
 
 
 def test_encodings_of_contains_expected_forms():
@@ -156,7 +155,7 @@ Expected: FAIL — `ImportError: cannot import name 'encodings_of'`
 
 - [ ] **Step 3: Write minimal implementation**
 
-Add to `src/dwcollector/matching.py` (imports at top: `import base64` and `from urllib.parse import quote`):
+Add to `src/onionwatch/matching.py` (imports at top: `import base64` and `from urllib.parse import quote`):
 
 ```python
 def encodings_of(value: str) -> list[str]:
@@ -182,7 +181,7 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/dwcollector/matching.py tests/test_matching.py
+git add src/onionwatch/matching.py tests/test_matching.py
 git commit -m "feat: encodings_of for base64/hex/url encoded-value matching"
 ```
 
@@ -191,7 +190,7 @@ git commit -m "feat: encodings_of for base64/hex/url encoded-value matching"
 ### Task 3: PII validators — Luhn, IBAN mod-97, US SSN
 
 **Files:**
-- Modify: `src/dwcollector/matching.py`
+- Modify: `src/onionwatch/matching.py`
 - Test: `tests/test_matching.py` (append)
 
 **Interfaces:**
@@ -202,7 +201,7 @@ git commit -m "feat: encodings_of for base64/hex/url encoded-value matching"
 Append to `tests/test_matching.py`:
 
 ```python
-from dwcollector.matching import luhn_valid, iban_valid, ssn_valid
+from onionwatch.matching import luhn_valid, iban_valid, ssn_valid
 
 
 def test_luhn_valid():
@@ -234,7 +233,7 @@ Expected: FAIL — `ImportError: cannot import name 'luhn_valid'`
 
 - [ ] **Step 3: Write minimal implementation**
 
-Add to `src/dwcollector/matching.py`:
+Add to `src/onionwatch/matching.py`:
 
 ```python
 def luhn_valid(digits: str) -> bool:
@@ -280,7 +279,7 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/dwcollector/matching.py tests/test_matching.py
+git add src/onionwatch/matching.py tests/test_matching.py
 git commit -m "feat: PII structural validators (Luhn, IBAN mod-97, US SSN)"
 ```
 
@@ -289,7 +288,7 @@ git commit -m "feat: PII structural validators (Luhn, IBAN mod-97, US SSN)"
 ### Task 4: PII detectors — registry + `run_detectors` (aggregate + mask)
 
 **Files:**
-- Modify: `src/dwcollector/matching.py`
+- Modify: `src/onionwatch/matching.py`
 - Test: `tests/test_matching.py` (append)
 
 **Interfaces:**
@@ -301,7 +300,7 @@ git commit -m "feat: PII structural validators (Luhn, IBAN mod-97, US SSN)"
 Append to `tests/test_matching.py`:
 
 ```python
-from dwcollector.matching import available_detectors, run_detectors
+from onionwatch.matching import available_detectors, run_detectors
 
 
 def test_available_detectors():
@@ -337,7 +336,7 @@ Expected: FAIL — `ImportError: cannot import name 'run_detectors'`
 
 - [ ] **Step 3: Write minimal implementation**
 
-Add to `src/dwcollector/matching.py`:
+Add to `src/onionwatch/matching.py`:
 
 ```python
 def _digits(s: str) -> str:
@@ -416,7 +415,7 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/dwcollector/matching.py tests/test_matching.py
+git add src/onionwatch/matching.py tests/test_matching.py
 git commit -m "feat: validated, masked, aggregated PII shape detectors"
 ```
 
@@ -425,7 +424,7 @@ git commit -m "feat: validated, masked, aggregated PII shape detectors"
 ### Task 5: Per-term matchers — `match_term`
 
 **Files:**
-- Modify: `src/dwcollector/matching.py`
+- Modify: `src/onionwatch/matching.py`
 - Test: `tests/test_matching.py` (append)
 
 **Interfaces:**
@@ -437,7 +436,7 @@ git commit -m "feat: validated, masked, aggregated PII shape detectors"
 Append to `tests/test_matching.py`:
 
 ```python
-from dwcollector.matching import match_term
+from onionwatch.matching import match_term
 
 
 def test_match_term_literal_and_key():
@@ -487,7 +486,7 @@ Expected: FAIL — `ImportError: cannot import name 'match_term'`
 
 - [ ] **Step 3: Write minimal implementation**
 
-Add to `src/dwcollector/matching.py`:
+Add to `src/onionwatch/matching.py`:
 
 ```python
 def _snippet(text: str, start: int, end: int, ctx: int) -> str:
@@ -552,7 +551,7 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/dwcollector/matching.py tests/test_matching.py
+git add src/onionwatch/matching.py tests/test_matching.py
 git commit -m "feat: per-term matchers (literal/regex/fuzzy/encoded/credential)"
 ```
 
@@ -561,7 +560,7 @@ git commit -m "feat: per-term matchers (literal/regex/fuzzy/encoded/credential)"
 ### Task 6: Public entry — `find_matches`
 
 **Files:**
-- Modify: `src/dwcollector/matching.py`
+- Modify: `src/onionwatch/matching.py`
 - Test: `tests/test_matching.py` (append)
 
 **Interfaces:**
@@ -573,7 +572,7 @@ git commit -m "feat: per-term matchers (literal/regex/fuzzy/encoded/credential)"
 Append to `tests/test_matching.py`:
 
 ```python
-from dwcollector.matching import find_matches
+from onionwatch.matching import find_matches
 
 
 def test_find_matches_mixes_terms_and_detectors():
@@ -599,7 +598,7 @@ Expected: FAIL — `ImportError: cannot import name 'find_matches'`
 
 - [ ] **Step 3: Write minimal implementation**
 
-Add to `src/dwcollector/matching.py`:
+Add to `src/onionwatch/matching.py`:
 
 ```python
 def find_matches(text: str, terms: list[str], detectors: list[str],
@@ -619,7 +618,7 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/dwcollector/matching.py tests/test_matching.py
+git add src/onionwatch/matching.py tests/test_matching.py
 git commit -m "feat: find_matches public entry point"
 ```
 
@@ -628,7 +627,7 @@ git commit -m "feat: find_matches public entry point"
 ### Task 7: DB — `leak_hits` columns + `record_leak_hit` params + migration
 
 **Files:**
-- Modify: `src/dwcollector/db.py` (`SCHEMA`, `init_schema`, `record_leak_hit`)
+- Modify: `src/onionwatch/db.py` (`SCHEMA`, `init_schema`, `record_leak_hit`)
 - Test: `tests/test_db.py` (append)
 
 **Interfaces:**
@@ -677,7 +676,7 @@ Expected: FAIL — `sqlite3.OperationalError: table leak_hits has no column name
 
 - [ ] **Step 3: Write minimal implementation**
 
-In `src/dwcollector/db.py`, update the `leak_hits` table in `SCHEMA`:
+In `src/onionwatch/db.py`, update the `leak_hits` table in `SCHEMA`:
 
 ```sql
 CREATE TABLE IF NOT EXISTS leak_hits (
@@ -733,7 +732,7 @@ Expected: all green (existing hunt/alerts callers of `record_leak_hit` unaffecte
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/dwcollector/db.py tests/test_db.py
+git add src/onionwatch/db.py tests/test_db.py
 git commit -m "feat: leak_hits match_kind/match_count columns + idempotent migration"
 ```
 
@@ -742,7 +741,7 @@ git commit -m "feat: leak_hits match_kind/match_count columns + idempotent migra
 ### Task 8: Config — `pii_detectors` + unknown-name warning
 
 **Files:**
-- Modify: `src/dwcollector/config.py` (`Config`, `load_config`)
+- Modify: `src/onionwatch/config.py` (`Config`, `load_config`)
 - Modify: `config.toml`
 - Test: `tests/test_config.py` (append)
 
@@ -756,12 +755,12 @@ Append to `tests/test_config.py`:
 
 ```python
 def test_pii_detectors_default_empty():
-    from dwcollector.config import Config
+    from onionwatch.config import Config
     assert Config().pii_detectors == []
 
 
 def test_pii_detectors_parsed_and_unknown_warned(tmp_path, capsys):
-    from dwcollector.config import load_config
+    from onionwatch.config import load_config
     p = tmp_path / "c.toml"
     p.write_text('pii_detectors = ["credit-card", "not-real", "us-ssn"]\n')
     c = load_config(str(p))
@@ -777,7 +776,7 @@ Expected: FAIL — `AttributeError: 'Config' object has no attribute 'pii_detect
 
 - [ ] **Step 3: Write minimal implementation**
 
-In `src/dwcollector/config.py`, add `field` to the dataclass import and a field to `Config`:
+In `src/onionwatch/config.py`, add `field` to the dataclass import and a field to `Config`:
 
 ```python
 from dataclasses import dataclass, fields, field
@@ -822,7 +821,7 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/dwcollector/config.py config.toml tests/test_config.py
+git add src/onionwatch/config.py config.toml tests/test_config.py
 git commit -m "feat: pii_detectors config with unknown-name validation"
 ```
 
@@ -831,8 +830,8 @@ git commit -m "feat: pii_detectors config with unknown-name validation"
 ### Task 9: Integrate `find_matches` into `hunt()`
 
 **Files:**
-- Modify: `src/dwcollector/hunt.py` (`hunt`)
-- Modify: `src/dwcollector/cli.py` (`_run_hunt`, `run_cycle` hunt call — pass detectors)
+- Modify: `src/onionwatch/hunt.py` (`hunt`)
+- Modify: `src/onionwatch/cli.py` (`_run_hunt`, `run_cycle` hunt call — pass detectors)
 - Test: `tests/test_hunt.py` (append; update existing if needed)
 
 **Interfaces:**
@@ -844,7 +843,7 @@ git commit -m "feat: pii_detectors config with unknown-name validation"
 Append to `tests/test_hunt.py`:
 
 ```python
-from dwcollector.matching import find_matches  # noqa: F401 (ensures module import path)
+from onionwatch.matching import find_matches  # noqa: F401 (ensures module import path)
 
 
 @pytest.mark.asyncio
@@ -887,7 +886,7 @@ Expected: FAIL — `hunt()` has no `detectors` kwarg / still uses `match_terms` 
 
 - [ ] **Step 3: Write minimal implementation**
 
-Replace `hunt` in `src/dwcollector/hunt.py` (and update the import at the top from `from .discover import visible_text` — add `from .matching import find_matches`):
+Replace `hunt` in `src/onionwatch/hunt.py` (and update the import at the top from `from .discover import visible_text` — add `from .matching import find_matches`):
 
 ```python
 async def hunt(db, client, terms: list[str], run_id: str, now: str,
@@ -912,7 +911,7 @@ async def hunt(db, client, terms: list[str], run_id: str, now: str,
 
 `match_terms` may remain in `hunt.py` (used by its own unit tests) — do not delete it; it is superseded by `find_matches` for the hunt path only.
 
-In `src/dwcollector/cli.py`, pass detectors at both call sites:
+In `src/onionwatch/cli.py`, pass detectors at both call sites:
 - In `_run_hunt`'s inner `go()`: `n, _ = await hunt(db, client, terms, f"hunt-{_now()}", _now(), detectors=cfg.pii_detectors)`
 - In `run_cycle`'s `go_hunt()`: `return await hunt(db, client, terms, run_id, _now(), detectors=cfg.pii_detectors)`
 
@@ -929,7 +928,7 @@ Expected: all green.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/dwcollector/hunt.py src/dwcollector/cli.py tests/test_hunt.py
+git add src/onionwatch/hunt.py src/onionwatch/cli.py tests/test_hunt.py
 git commit -m "feat: hunt() uses find_matches with pii detectors, records match_kind/count"
 ```
 
@@ -938,7 +937,7 @@ git commit -m "feat: hunt() uses find_matches with pii detectors, records match_
 ### Task 10: Alert copy — `pii:`-aware `_title`/`_body`
 
 **Files:**
-- Modify: `src/dwcollector/alerts.py` (`_title`, `_body`)
+- Modify: `src/onionwatch/alerts.py` (`_title`, `_body`)
 - Test: `tests/test_alerts.py` (append)
 
 **Interfaces:**
@@ -949,7 +948,7 @@ git commit -m "feat: hunt() uses find_matches with pii detectors, records match_
 Append to `tests/test_alerts.py`:
 
 ```python
-from dwcollector.alerts import _title, _body
+from onionwatch.alerts import _title, _body
 
 
 def _pii_finding():
@@ -987,7 +986,7 @@ Expected: FAIL — title renders `Client identifier 'pii:credit-card' exposed on
 
 - [ ] **Step 3: Write minimal implementation**
 
-Replace `_title` and `_body` in `src/dwcollector/alerts.py`:
+Replace `_title` and `_body` in `src/onionwatch/alerts.py`:
 
 ```python
 def _title(finding: dict, event: str) -> str:
@@ -1023,7 +1022,7 @@ Expected: PASS (new copy tests + existing alerts tests, whose identifier wording
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/dwcollector/alerts.py tests/test_alerts.py
+git add src/onionwatch/alerts.py tests/test_alerts.py
 git commit -m "feat: pii-aware alert title copy; identifier wording unchanged"
 ```
 
@@ -1072,6 +1071,6 @@ git commit -m "docs: document matching modes and pii detectors"
 
 - [ ] Run the full suite: `pytest -q` — expect all prior tests plus the new ones green.
 - [ ] Smoke matching offline:
-  `python -c "from dwcollector.matching import find_matches; print([(m.kind,m.key) for m in find_matches('acme[.]com card 4111111111111111', ['fuzzy:acme.com'], ['credit-card'])])"`
+  `python -c "from onionwatch.matching import find_matches; print([(m.kind,m.key) for m in find_matches('acme[.]com card 4111111111111111', ['fuzzy:acme.com'], ['credit-card'])])"`
   — expect a `('fuzzy','acme.com')` and a `('pii','pii:credit-card')` entry.
 - [ ] Confirm `git log --oneline` shows one commit per task and the tree is clean.

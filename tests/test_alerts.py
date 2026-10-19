@@ -1,8 +1,8 @@
 import json
 from types import SimpleNamespace
-from dwcollector.db import Database
-from dwcollector.alerts import emit, reconcile_leaks, reconcile_dead_originals
-from dwcollector.alerts import reconcile_listing_matches
+from onionwatch.db import Database
+from onionwatch.alerts import emit, reconcile_leaks, reconcile_dead_originals
+from onionwatch.alerts import reconcile_listing_matches
 
 
 def _cfg(tmp_path, webhook=""):
@@ -170,7 +170,7 @@ def test_reconcile_dead_original_lifecycle(tmp_path):
     assert db.get_finding(key)["status"] == "resolved"
 
 
-from dwcollector.alerts import _title, _body
+from onionwatch.alerts import _title, _body
 
 
 def _pii_finding():
@@ -201,7 +201,7 @@ def test_body_pii_does_not_leak_raw_but_shows_masked():
     assert "1111" in b and "•" in b
 
 
-from dwcollector.alerts import reconcile_dead_originals, _candidate_note
+from onionwatch.alerts import reconcile_dead_originals, _candidate_note
 
 
 def _dead_anchor_with_sibling(db, alive_sibling: bool):
@@ -240,7 +240,7 @@ def test_reconcile_dead_original_carries_candidates(tmp_path):
     assert "http://sib.onion/" in (f["context_snippet"] or "")
 
 
-from dwcollector.alerts import reconcile_anchor_identity
+from onionwatch.alerts import reconcile_anchor_identity
 
 
 def _anchor_row(db, url="http://aaaaaaaaaaaaaaaa.onion/", host="aaaaaaaaaaaaaaaa.onion"):
@@ -415,7 +415,7 @@ def test_reconcile_listing_no_listings_returns_empty(tmp_path):
 
 
 def test_market_listing_alert_copy():
-    from dwcollector.alerts import _title, _body
+    from onionwatch.alerts import _title, _body
     f = {"kind": "market_listing", "term": "acme-db", "host": "m.onion",
          "url": "http://m.onion/1", "context_snippet": "[0.05 BTC] acme-db 0.05 BTC"}
     t_open, t_res = _title(f, "opened"), _title(f, "resolved")

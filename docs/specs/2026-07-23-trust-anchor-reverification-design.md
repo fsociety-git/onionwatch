@@ -197,7 +197,7 @@ false-resolving — correct, because we deliberately did not search it.
 
 - Auto-re-anchoring / auto-promoting a candidate to trusted (rejected by design).
 - Identity re-verification for allow-list-only anchors (no fingerprint to check).
-- A dedicated `dwcollector anchors` CLI view (candidates already ride the alert
+- A dedicated `onionwatch anchors` CLI view (candidates already ride the alert
   body / `alerts.jsonl` / finding record).
 - Re-probing anchors listed in `verified_sources.toml` that were never crawled
   (no DB row to re-probe); the tool re-verifies anchors it has discovered.

@@ -1,4 +1,4 @@
-from dwcollector.categorize import categorize
+from onionwatch.categorize import categorize
 
 RULES = {
     "marketplace": ["market", "vendor", "escrow"],

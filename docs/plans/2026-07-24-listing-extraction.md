@@ -1,6 +1,5 @@
 # Market-Listing Content Extraction Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** On marketplace-category pages, generically extract price-anchored listing records into a queryable `listings` store, surfaced via a `listings` CLI command. Opt-in; no page bodies stored.
 
@@ -24,11 +23,11 @@
 
 ## File Structure
 
-- `src/dwcollector/extract.py` (create) — pure extractor: `extract_listings` + `_parse_amount` + currency tables/patterns.
-- `src/dwcollector/db.py` (modify) — `listings` table in `SCHEMA`; `replace_listings`, `list_listings`.
-- `src/dwcollector/config.py` (modify) — 4 `Config` fields.
-- `src/dwcollector/discover.py` (modify) — import + one extraction call in the alive branch.
-- `src/dwcollector/cli.py` (modify) — `listings` subparser, `_run_listings`, dispatch branch.
+- `src/onionwatch/extract.py` (create) — pure extractor: `extract_listings` + `_parse_amount` + currency tables/patterns.
+- `src/onionwatch/db.py` (modify) — `listings` table in `SCHEMA`; `replace_listings`, `list_listings`.
+- `src/onionwatch/config.py` (modify) — 4 `Config` fields.
+- `src/onionwatch/discover.py` (modify) — import + one extraction call in the alive branch.
+- `src/onionwatch/cli.py` (modify) — `listings` subparser, `_run_listings`, dispatch branch.
 - `tests/test_extract.py` (create), `tests/test_db.py`, `tests/test_discover.py`, `tests/test_cli.py` (modify) — tests.
 - `README.md` (modify) — document `listings` + `[extract_listings]` config.
 
@@ -37,7 +36,7 @@
 ### Task 1: The extractor (`extract.py`)
 
 **Files:**
-- Create: `src/dwcollector/extract.py`
+- Create: `src/onionwatch/extract.py`
 - Test: `tests/test_extract.py` (create)
 
 **Interfaces:**
@@ -49,7 +48,7 @@
 Create `tests/test_extract.py`:
 
 ```python
-from dwcollector.extract import extract_listings
+from onionwatch.extract import extract_listings
 
 
 def test_detects_each_currency_and_arrangement():
@@ -117,11 +116,11 @@ def test_thousands_and_decimal_separators():
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `.venv/bin/python -m pytest tests/test_extract.py -v`
-Expected: FAIL — `ModuleNotFoundError: No module named 'dwcollector.extract'`.
+Expected: FAIL — `ModuleNotFoundError: No module named 'onionwatch.extract'`.
 
 - [ ] **Step 3: Implement `extract.py`**
 
-Create `src/dwcollector/extract.py`:
+Create `src/onionwatch/extract.py`:
 
 ```python
 from __future__ import annotations
@@ -208,7 +207,7 @@ Expected: PASS (all 8 tests).
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/dwcollector/extract.py tests/test_extract.py
+git add src/onionwatch/extract.py tests/test_extract.py
 git commit -m "feat: generic price-anchored listing extractor"
 ```
 
@@ -217,7 +216,7 @@ git commit -m "feat: generic price-anchored listing extractor"
 ### Task 2: `listings` table + DB methods
 
 **Files:**
-- Modify: `src/dwcollector/db.py` (`SCHEMA` — add table before the closing `"""` ~line 92; add methods near the other query methods)
+- Modify: `src/onionwatch/db.py` (`SCHEMA` — add table before the closing `"""` ~line 92; add methods near the other query methods)
 - Test: `tests/test_db.py`
 
 **Interfaces:**
@@ -289,7 +288,7 @@ Expected: FAIL — `sqlite3.OperationalError: no such table: listings` / `Attrib
 
 - [ ] **Step 3: Add the table and methods**
 
-In `src/dwcollector/db.py`, add to `SCHEMA` immediately before the closing `"""` (after the `case_log` table, ~line 92):
+In `src/onionwatch/db.py`, add to `SCHEMA` immediately before the closing `"""` (after the `case_log` table, ~line 92):
 
 ```sql
 CREATE TABLE IF NOT EXISTS listings (
@@ -339,7 +338,7 @@ Expected: PASS (the four new tests plus all pre-existing db tests).
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/dwcollector/db.py tests/test_db.py
+git add src/onionwatch/db.py tests/test_db.py
 git commit -m "feat: listings table + replace_listings/list_listings"
 ```
 
@@ -348,8 +347,8 @@ git commit -m "feat: listings table + replace_listings/list_listings"
 ### Task 3: Config fields + `discover.crawl` integration
 
 **Files:**
-- Modify: `src/dwcollector/config.py` (`Config` dataclass, after `crawl_priority` ~line 27)
-- Modify: `src/dwcollector/discover.py` (import; alive branch after the category `db.update_url(...)` ~line 152)
+- Modify: `src/onionwatch/config.py` (`Config` dataclass, after `crawl_priority` ~line 27)
+- Modify: `src/onionwatch/discover.py` (import; alive branch after the category `db.update_url(...)` ~line 152)
 - Test: `tests/test_discover.py`
 
 **Interfaces:**
@@ -408,7 +407,7 @@ Expected: FAIL — `TypeError: __init__() got an unexpected keyword argument 'ex
 
 - [ ] **Step 3: Add config fields and wire extraction**
 
-In `src/dwcollector/config.py`, add to the `Config` dataclass after `crawl_priority` (~line 27):
+In `src/onionwatch/config.py`, add to the `Config` dataclass after `crawl_priority` (~line 27):
 
 ```python
     extract_listings: bool = False
@@ -417,7 +416,7 @@ In `src/dwcollector/config.py`, add to the `Config` dataclass after `crawl_prior
     max_listings_per_page: int = 200
 ```
 
-In `src/dwcollector/discover.py`, add the import near the other package imports (the module already imports `from .config import priority_for`; extend or add):
+In `src/onionwatch/discover.py`, add the import near the other package imports (the module already imports `from .config import priority_for`; extend or add):
 
 ```python
 from .extract import extract_listings
@@ -449,7 +448,7 @@ Expected: PASS — all green (baseline 229 + new tests so far).
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/dwcollector/config.py src/dwcollector/discover.py tests/test_discover.py
+git add src/onionwatch/config.py src/onionwatch/discover.py tests/test_discover.py
 git commit -m "feat: wire listing extraction into crawl (opt-in, listing categories)"
 ```
 
@@ -458,12 +457,12 @@ git commit -m "feat: wire listing extraction into crawl (opt-in, listing categor
 ### Task 4: `listings` CLI command
 
 **Files:**
-- Modify: `src/dwcollector/cli.py` (subparser near `export` ~line 48-53; `_run_listings` handler near `_run_export` ~line 163; dispatch branch after `case` ~line 491)
+- Modify: `src/onionwatch/cli.py` (subparser near `export` ~line 48-53; `_run_listings` handler near `_run_export` ~line 163; dispatch branch after `case` ~line 491)
 - Test: `tests/test_cli.py`
 
 **Interfaces:**
 - Consumes: `list_listings` (Task 2).
-- Produces: `dwcollector listings [...]` → `_run_listings(db, args)`.
+- Produces: `onionwatch listings [...]` → `_run_listings(db, args)`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -472,7 +471,7 @@ Add to `tests/test_cli.py`:
 ```python
 def test_listings_command_json_and_filters(tmp_path, capsys):
     import json as _json
-    from dwcollector.cli import build_parser, _run_listings
+    from onionwatch.cli import build_parser, _run_listings
     db = Database(str(tmp_path / "t.db")); db.init_schema()
     db.replace_listings("http://a.onion/1", "a.onion", [
         {"price_value": 0.05, "currency": "BTC", "price_raw": "0.05 BTC", "product_text": "cocaine grams"},
@@ -496,7 +495,7 @@ def test_listings_command_json_and_filters(tmp_path, capsys):
 
 
 def test_listings_command_empty_ok(tmp_path, capsys):
-    from dwcollector.cli import build_parser, _run_listings
+    from onionwatch.cli import build_parser, _run_listings
     db = Database(str(tmp_path / "t.db")); db.init_schema()
     # table format, no rows -> valid output, no crash
     _run_listings(db, build_parser().parse_args(["listings"]))
@@ -511,7 +510,7 @@ Expected: FAIL — `ImportError: cannot import name '_run_listings'` / argparse 
 
 - [ ] **Step 3: Add subparser, handler, and dispatch**
 
-In `src/dwcollector/cli.py`, add a subparser near the `export` one (after the `stats` parser, ~line 53):
+In `src/onionwatch/cli.py`, add a subparser near the `export` one (after the `stats` parser, ~line 53):
 
 ```python
     lp = sub.add_parser("listings")
@@ -563,7 +562,7 @@ Expected: PASS — all green.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/dwcollector/cli.py tests/test_cli.py
+git add src/onionwatch/cli.py tests/test_cli.py
 git commit -m "feat: listings CLI query command"
 ```
 
@@ -584,7 +583,7 @@ Add a new top-level `## Market-listing extraction (optional)` section to `README
 ```markdown
 ## Market-listing extraction (optional)
 
-On marketplace pages, dwcollector can extract price-anchored **listing records**
+On marketplace pages, onionwatch can extract price-anchored **listing records**
 — a best-effort signal of what is being sold and at what price. It is off by
 default. Enable it in `config.toml`:
 
@@ -603,7 +602,7 @@ stored, only the bounded context windows.
 
 Query them:
 
-    dwcollector listings [--host H] [--currency BTC] \
+    onionwatch listings [--host H] [--currency BTC] \
                          [--min-price N] [--max-price N] \
                          [--contains TEXT] [--format table|json]
 

@@ -1,6 +1,5 @@
 # Finding Disposition & Triage — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let an analyst triage findings — set a disposition (new/confirmed/false_positive/dismissed) with an append-only note history, work a severity-ordered triage queue, and stop alerts for findings dispositioned as not-a-threat.
 
@@ -8,7 +7,7 @@
 
 **Tech Stack:** Python 3.11+, sqlite3 (stdlib), pytest + pytest-asyncio. No new dependencies.
 
-**Spec:** `docs/superpowers/specs/2026-07-24-finding-disposition-triage-design.md`
+**Spec:** `docs/specs/2026-07-24-finding-disposition-triage-design.md`
 
 ## Global Constraints
 
@@ -26,7 +25,7 @@
 ### Task 1: Schema + migration + `record_alert(suppressed)` + `get_finding_by_id`
 
 **Files:**
-- Modify: `src/dwcollector/db.py` (`SCHEMA`, `init_schema`, `record_alert`, add `get_finding_by_id`)
+- Modify: `src/onionwatch/db.py` (`SCHEMA`, `init_schema`, `record_alert`, add `get_finding_by_id`)
 - Test: `tests/test_db.py` (append)
 
 **Interfaces:**
@@ -84,7 +83,7 @@ Expected: FAIL — `AttributeError: 'Database' object has no attribute 'get_find
 
 - [ ] **Step 3: Write minimal implementation**
 
-In `src/dwcollector/db.py`, update the `findings` table in `SCHEMA` to add three columns:
+In `src/onionwatch/db.py`, update the `findings` table in `SCHEMA` to add three columns:
 
 ```sql
 CREATE TABLE IF NOT EXISTS findings (
@@ -166,7 +165,7 @@ Expected: all green — existing `record_alert` callers (in `alerts.emit`) still
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/dwcollector/db.py tests/test_db.py
+git add src/onionwatch/db.py tests/test_db.py
 git commit -m "feat: findings disposition columns, disposition_log, alerts.suppressed + migration"
 ```
 
@@ -175,7 +174,7 @@ git commit -m "feat: findings disposition columns, disposition_log, alerts.suppr
 ### Task 2: Disposition DB methods
 
 **Files:**
-- Modify: `src/dwcollector/db.py`
+- Modify: `src/onionwatch/db.py`
 - Test: `tests/test_db.py` (append)
 
 **Interfaces:**
@@ -248,7 +247,7 @@ Expected: FAIL — `AttributeError: 'Database' object has no attribute 'set_disp
 
 - [ ] **Step 3: Write minimal implementation**
 
-Add to `src/dwcollector/db.py`:
+Add to `src/onionwatch/db.py`:
 
 ```python
     def set_disposition(self, finding_id, disposition, note, actor, now) -> None:
@@ -291,7 +290,7 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/dwcollector/db.py tests/test_db.py
+git add src/onionwatch/db.py tests/test_db.py
 git commit -m "feat: set_disposition/add_note/triage_queue/disposition_history"
 ```
 
@@ -300,7 +299,7 @@ git commit -m "feat: set_disposition/add_note/triage_queue/disposition_history"
 ### Task 3: Alert suppression in `emit`
 
 **Files:**
-- Modify: `src/dwcollector/alerts.py` (`emit`, add `SUPPRESSED_DISPOSITIONS`)
+- Modify: `src/onionwatch/alerts.py` (`emit`, add `SUPPRESSED_DISPOSITIONS`)
 - Test: `tests/test_alerts.py` (append)
 
 **Interfaces:**
@@ -354,7 +353,7 @@ Expected: FAIL — `emit` delivers to the webhook (`calls` non-empty) and writes
 
 - [ ] **Step 3: Write minimal implementation**
 
-In `src/dwcollector/alerts.py`, add the constant near the other severity constants:
+In `src/onionwatch/alerts.py`, add the constant near the other severity constants:
 
 ```python
 SUPPRESSED_DISPOSITIONS = ("false_positive", "dismissed")
@@ -380,7 +379,7 @@ Expected: PASS (new suppression tests + existing emit/reconcile tests, whose fin
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/dwcollector/alerts.py tests/test_alerts.py
+git add src/onionwatch/alerts.py tests/test_alerts.py
 git commit -m "feat: emit suppresses alerts for false_positive/dismissed findings"
 ```
 
@@ -389,7 +388,7 @@ git commit -m "feat: emit suppresses alerts for false_positive/dismissed finding
 ### Task 4: CLI — `triage` / `disposition` / `note` / `history` + `alerts` disposition column
 
 **Files:**
-- Modify: `src/dwcollector/cli.py` (`build_parser`, handlers, `main` dispatch, `_run_alerts`)
+- Modify: `src/onionwatch/cli.py` (`build_parser`, handlers, `main` dispatch, `_run_alerts`)
 - Test: `tests/test_cli.py` (append)
 
 **Interfaces:**
@@ -401,7 +400,7 @@ git commit -m "feat: emit suppresses alerts for false_positive/dismissed finding
 Append to `tests/test_cli.py`:
 
 ```python
-from dwcollector.cli import build_parser, _run_triage, _run_disposition, _run_note, _run_history
+from onionwatch.cli import build_parser, _run_triage, _run_disposition, _run_note, _run_history
 
 
 def _seed_finding(db, dedup="leak:http://x.onion/|acme.com", sev="critical"):
@@ -557,7 +556,7 @@ Expected: all green.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/dwcollector/cli.py tests/test_cli.py
+git add src/onionwatch/cli.py tests/test_cli.py
 git commit -m "feat: triage/disposition/note/history CLI + disposition in alerts listing"
 ```
 
@@ -572,7 +571,7 @@ git commit -m "feat: triage/disposition/note/history CLI + disposition in alerts
 
 - [ ] **Step 1: Document triage & disposition in README**
 
-Add an "Analyst triage & disposition" subsection to `README.md` near the alerting content covering: dispositions (`new`/`confirmed`/`false_positive`/`dismissed`), that disposition is separate from the machine `status` and **sticky** across reopen; the **triage queue** (`dwcollector triage` — open, un-triaged, severity-first); the commands `disposition <id> <value> [--note] [--by]`, `note <id> --text`, `history <id>`, and that `alerts` now shows disposition; and that marking a finding `false_positive`/`dismissed` **suppresses its future alerts** (audited via a suppressed alert row), while `new`/`confirmed` keep alerting.
+Add an "Analyst triage & disposition" subsection to `README.md` near the alerting content covering: dispositions (`new`/`confirmed`/`false_positive`/`dismissed`), that disposition is separate from the machine `status` and **sticky** across reopen; the **triage queue** (`onionwatch triage` — open, un-triaged, severity-first); the commands `disposition <id> <value> [--note] [--by]`, `note <id> --text`, `history <id>`, and that `alerts` now shows disposition; and that marking a finding `false_positive`/`dismissed` **suppresses its future alerts** (audited via a suppressed alert row), while `new`/`confirmed` keep alerting.
 
 - [ ] **Step 2: Verify suite green and commit**
 

@@ -1,6 +1,6 @@
 import pytest
-from dwcollector.config import Config
-from dwcollector.tor_client import TorClient
+from onionwatch.config import Config
+from onionwatch.tor_client import TorClient
 
 @pytest.mark.live
 @pytest.mark.asyncio

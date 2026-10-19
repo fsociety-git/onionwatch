@@ -1,7 +1,7 @@
 import json
-from dwcollector.db import Database
-from dwcollector.report import client_findings, build_report, render_json, render_markdown
-from dwcollector.report import build_case_report, render_case_json, render_case_markdown
+from onionwatch.db import Database
+from onionwatch.report import client_findings, build_report, render_json, render_markdown
+from onionwatch.report import build_case_report, render_case_json, render_case_markdown
 
 CLIENT = {"name": "Acme", "terms": ["acme.com", "fuzzy:secret.com"]}
 
@@ -72,7 +72,7 @@ def test_build_report_summary_and_render(tmp_path):
 
 
 def test_report_includes_client_cases(tmp_path):
-    from dwcollector.report import client_cases
+    from onionwatch.report import client_cases
     db = Database(str(tmp_path / "t.db")); db.init_schema()
     cid = db.create_case("Acme breach", "Acme", None, "2026-07-24T00:00:00")
     db.create_case("Other", "Beta", None, "2026-07-24T00:00:00")     # different client
@@ -93,7 +93,7 @@ def test_report_includes_client_cases(tmp_path):
 
 
 def test_finding_entry_shared_shape_and_kind(tmp_path):
-    from dwcollector.report import _finding_entry
+    from onionwatch.report import _finding_entry
     db = Database(str(tmp_path / "t.db")); db.init_schema()
     _leak(db, "acme.com", "leak:a")
     f = db.get_finding("leak:a")
@@ -183,7 +183,7 @@ def test_build_case_report_duration_closed(tmp_path):
 
 
 def test_duration_degrades_on_bad_timestamp(tmp_path):
-    from dwcollector.report import _duration
+    from onionwatch.report import _duration
     assert _duration(None, None, "2026-07-24T00:00:00") == ""
     assert _duration("garbage", None, "2026-07-24T00:00:00") == ""
 

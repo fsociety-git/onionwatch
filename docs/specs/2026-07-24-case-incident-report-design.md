@@ -140,7 +140,7 @@ def render_case_markdown(report) -> str: ...
 `--client` (argparse enforces exactly one):
 
 ```
-dwcollector report (--client "Acme Corp" | --case 42) [--format md|json] [--since DATE] [--all]
+onionwatch report (--client "Acme Corp" | --case 42) [--format md|json] [--since DATE] [--all]
 ```
 
 `--format md|json` applies to both paths. `--all` and `--since` apply only to

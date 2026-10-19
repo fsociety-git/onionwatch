@@ -1,7 +1,7 @@
 import pytest
-from dwcollector.db import Database
-from dwcollector.probe import extract_title, probe_url, reprobe_all
-from dwcollector.tor_client import FetchResult
+from onionwatch.db import Database
+from onionwatch.probe import extract_title, probe_url, reprobe_all
+from onionwatch.tor_client import FetchResult
 
 class OneShot:
     def __init__(self, res): self.res = res

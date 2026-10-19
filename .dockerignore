@@ -1,0 +1,13 @@
+# Keep the Docker build context lean — none of these are needed in the image.
+.venv/
+.git/
+data/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.superpowers/
+.impeccable/
+.claude/
+docs/
+tests/
+*.example

@@ -1,4 +1,4 @@
-from dwcollector.discover import (
+from onionwatch.discover import (
     normalize_url, onion_host, extract_onion_links, visible_text,
 )
 
@@ -34,16 +34,16 @@ import asyncio
 from collections import defaultdict
 
 import pytest
-from dwcollector.config import Config
-from dwcollector.db import Database
-from dwcollector.discover import crawl, onion_host, FetchResult  # FetchResult re-exported for typing
+from onionwatch.config import Config
+from onionwatch.db import Database
+from onionwatch.discover import crawl, onion_host, FetchResult  # FetchResult re-exported for typing
 
 class FakeClient:
     """Returns canned HTML per URL; unknown URLs 404."""
     def __init__(self, pages):
         self.pages = pages
     async def fetch(self, url):
-        from dwcollector.tor_client import FetchResult as FR
+        from onionwatch.tor_client import FetchResult as FR
         html = self.pages.get(url)
         if html is None:
             return FR(url, 404, "", 5, True)
@@ -87,7 +87,7 @@ async def test_crawl_isolates_per_url_exceptions(tmp_path):
 
     class BoomClient:
         async def fetch(self, url):
-            from dwcollector.tor_client import FetchResult as FR
+            from onionwatch.tor_client import FetchResult as FR
             if url == A:
                 raise RuntimeError("boom: malformed page")
             return FR(url, 200, "", 1, True)
@@ -130,7 +130,7 @@ async def test_crawl_per_host_cap_is_atomic_under_concurrency(tmp_path):
             self.fetch_count = defaultdict(int)
 
         async def fetch(self, url):
-            from dwcollector.tor_client import FetchResult as FR
+            from onionwatch.tor_client import FetchResult as FR
             host = onion_host(url)
             await asyncio.sleep(0)
             self.fetch_count[host] += 1
@@ -253,7 +253,7 @@ async def test_crawl_pgp_fingerprint_marks_canonical_via_pgp_tier(tmp_path):
     """End-to-end: a crawled page's extracted fingerprint, when it matches
     verified['pgp'] for that host, lets run_clustering mark it canonical via
     the pgp tier with trust 'probable'."""
-    from dwcollector.cluster import run_clustering
+    from onionwatch.cluster import run_clustering
     A = "http://aaaaaaaaaaaaaaaa.onion/"
     fp_shown = "AAAA BBBB CCCC DDDD EEEE FFFF 0000 1111 2222 3333"
     pages = {A: f"<html><body><p>PGP: {fp_shown}</p></body></html>"}

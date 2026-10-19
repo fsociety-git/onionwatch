@@ -1,13 +1,53 @@
-# dwcollector
+# onionwatch
 
-A Tor-based threat-hunting crawler: deep-discovers `.onion` sites across all
-categories, checks liveness through a containerised Tor, categorises them,
-distinguishes legit originals from clone/phishing mirrors, and hunts a client's
-identifiers across the curated legit sites.
+[![CI](https://github.com/fsociety-git/onionwatch/actions/workflows/ci.yml/badge.svg)](https://github.com/fsociety-git/onionwatch/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/)
 
-**Authorised use only** — for detecting whether a client's data has leaked to the
-dark web. It does not download or store full leaked datasets, only matches +
-short context.
+**A self-hosted dark-web monitor you fully control.** onionwatch crawls `.onion`
+sites through Tor, tells legitimate originals apart from phishing clones, and
+continuously hunts for *your* identifiers (domains, emails, card numbers, secrets)
+across leak sites and marketplace listings, raising alerts when something new
+turns up.
+
+It is built for security teams, MSSPs, and researchers who want dark-web
+exposure monitoring without shipping their watchlist to a third-party SaaS.
+Everything runs in two containers on a box you own.
+
+## What it does
+
+- **Discovery** – deep-crawls `.onion` sites from your seeds, optionally
+  harvesting new seeds from onion directories and search indexes each cycle,
+  with category-aware prioritisation so high-value pages are fetched first.
+- **Clone detection** – fingerprints every page (simhash) and clusters
+  near-duplicates, anchoring the real original to your verified / PGP-signed
+  source list and flagging the rest as suspected phishing mirrors.
+- **Trust-anchor self-monitoring** – re-verifies liveness and PGP identity of
+  every trusted site each cycle; a dead or identity-changed anchor is never
+  searched again until an operator re-verifies it.
+- **Hunting** – matches your watchlist with literal, regex, fuzzy
+  (defanged / homoglyph / zero-width), encoded (base64 / hex / URL), and
+  masked-credential modes, plus validated PII detectors (card numbers, IBANs,
+  SSNs). Raw secrets are never stored, only bounded masked context.
+- **Market-listing extraction** – pulls price-anchored listings out of
+  marketplace pages and turns watchlist hits in them into findings.
+- **Continuous alerting** – stateful findings with open / resolved lifecycle,
+  CRITICAL new-leak and HIGH dead-original / identity alerts, written to a
+  local JSONL sink and an optional webhook (SIEM-friendly).
+- **Analyst workflow** – triage queue, dispositions (confirmed, false positive,
+  dismissed) with alert suppression and append-only history, case management,
+  and per-client or per-case Markdown / JSON reports.
+
+Everything is opt-in and config-driven: with no watchlist, trust anchors, or
+sources configured, onionwatch is just a resumable, polite Tor crawler.
+
+## Responsible use
+
+onionwatch is for **authorised defensive monitoring**: detecting whether data
+belonging to you or a client you are contracted to protect has leaked. It does
+not download or store leaked datasets, only matches plus short context. You
+are responsible for complying with the laws that apply to you and for the
+seeds, sources, and terms you configure.
 
 ## Setup
 
@@ -54,21 +94,25 @@ through the Tor client configured in `config.toml`.
 
 ## Run with Docker (recommended)
 
+Copy `docker-compose.override.yml.example` to `docker-compose.override.yml`
+to mount your editable config, watchlist, and client files into the container
+(edit on the host, `docker compose restart onionwatch`, no rebuild).
+
     docker compose up -d tor
-    docker compose run --rm dwcollector crawl
-    docker compose run --rm dwcollector cluster
-    docker compose run --rm dwcollector hunt --terms client.txt
+    docker compose run --rm onionwatch crawl
+    docker compose run --rm onionwatch cluster
+    docker compose run --rm onionwatch hunt --terms client.txt
 
 ### 24/7 operation
 
 `docker compose up -d` (no `run --rm`, no command override) starts the
-`dwcollector` service with its default command, `loop --interval 1800`: a
+`onionwatch` service with its default command, `loop --interval 1800`: a
 supervisor that repeats crawl (resuming the existing frontier) + cluster every
 30 minutes, forever, logging each cycle's result instead of dying on a bad
 cycle. Combined with `restart: unless-stopped`, this gives a self-healing
 continuous crawler on a dedicated VM — it comes back up after a crash, OOM, or
 host reboot and picks up the frontier where it left off. Run it standalone
-(without Docker) via `dwcollector loop`.
+(without Docker) via `onionwatch loop`.
 
 ### Continuous monitoring and alerts
 
@@ -160,7 +204,7 @@ of the trust anchors.
   record includes the event (opened/resolved), severity, kind, URL, host, term,
   title, body, created_at, and a dedup key. Webhook delivery status
   (`delivered` / `delivery_error`) is not written to this file — it's recorded
-  in the internal DB-backed alerts table, surfaced via `dwcollector alerts`.
+  in the internal DB-backed alerts table, surfaced via `onionwatch alerts`.
 - **Webhook:** if `alert_webhook` is configured (a URL), each alert is
   posted as JSON. Webhook failures do not block the crawler — they are logged
   and the cycle continues.
@@ -169,9 +213,9 @@ of the trust anchors.
 
 **Querying alerts:**
 
-    dwcollector alerts --status open          # open findings only
-    dwcollector alerts --status resolved      # resolved findings only
-    dwcollector alerts --status all           # both
+    onionwatch alerts --status open          # open findings only
+    onionwatch alerts --status resolved      # resolved findings only
+    onionwatch alerts --status all           # both
 
 Each row shows the finding's status, severity, kind (leak/dead_original), term
 (if applicable), host, timestamp, and the analyst disposition.
@@ -207,7 +251,7 @@ disposition it.
 
 **Triage queue:**
 
-    dwcollector triage
+    onionwatch triage
 
 Lists all open, un-triaged findings (those with `disposition = 'new'`), ordered
 by severity (critical first), then by last-seen timestamp (most recently seen first). Use this to find
@@ -217,19 +261,19 @@ which findings need review.
 
 Set disposition with an optional note and analyst actor:
 
-    dwcollector disposition <finding_id> <value> [--note "..."] [--by "analyst@corp"]
+    onionwatch disposition <finding_id> <value> [--note "..."] [--by "analyst@corp"]
 
 Example:
 
-    dwcollector disposition 42 false_positive --note "Test data from staging" --by "alice@corp"
+    onionwatch disposition 42 false_positive --note "Test data from staging" --by "alice@corp"
 
 Add a note to a finding without changing its disposition:
 
-    dwcollector note <finding_id> --text "Contact vendor re: remediation" [--by "bob@corp"]
+    onionwatch note <finding_id> --text "Contact vendor re: remediation" [--by "bob@corp"]
 
 Review the full history of disposition changes and notes for a finding:
 
-    dwcollector history <finding_id>
+    onionwatch history <finding_id>
 
 Outputs the timestamp, disposition (or note marker), actor, and comment for each
 log entry, in chronological order.
@@ -246,7 +290,7 @@ Client terms are added to the `loop` supervisor's hunt watchlist (deduped with
 `terms.txt`), so they're hunted alongside the standard watchlist. Generate a
 report for a specific client:
 
-    dwcollector report --client "Acme Corp" [--format md|json] [--since DATE] [--all]
+    onionwatch report --client "Acme Corp" [--format md|json] [--since DATE] [--all]
 
 The command writes a Markdown or JSON report to stdout (redirect to a file as
 needed). The report includes the client's **leak** findings (both open and
@@ -277,35 +321,35 @@ a purely analyst-driven review layer.
 
 Create a new case:
 
-    dwcollector case create "<title>" [--client "Name"] [--by "analyst@corp"]
+    onionwatch case create "<title>" [--client "Name"] [--by "analyst@corp"]
 
 List cases with optional filtering:
 
-    dwcollector case list [--client "Name"] [--state open|investigating|closed]
+    onionwatch case list [--client "Name"] [--state open|investigating|closed]
 
 Show case details (header, member findings, timeline):
 
-    dwcollector case show <case_id>
+    onionwatch case show <case_id>
 
 Assign a finding to a case:
 
-    dwcollector case assign <finding_id> <case_id> [--by "analyst@corp"]
+    onionwatch case assign <finding_id> <case_id> [--by "analyst@corp"]
 
 Remove a finding from a case:
 
-    dwcollector case unassign <finding_id> [--by "analyst@corp"]
+    onionwatch case unassign <finding_id> [--by "analyst@corp"]
 
 Change a case's state and optionally add a note:
 
-    dwcollector case state <case_id> <open|investigating|closed> [--note "..."] [--by "analyst@corp"]
+    onionwatch case state <case_id> <open|investigating|closed> [--note "..."] [--by "analyst@corp"]
 
 Add a note to a case without changing state:
 
-    dwcollector case note <case_id> --text "..." [--by "analyst@corp"]
+    onionwatch case note <case_id> --text "..." [--by "analyst@corp"]
 
 Cases appear as a **Cases** section in the per-client report:
 
-    dwcollector report --client "Acme Corp" [--format md|json] [--since DATE] [--all]
+    onionwatch report --client "Acme Corp" [--format md|json] [--since DATE] [--all]
 
 The report includes a **Cases** section with a one-line summary per case for that client — case id, state, title, and the number of findings assigned to it.
 
@@ -313,7 +357,7 @@ The report includes a **Cases** section with a one-line summary per case for tha
 
 Produce a full incident dossier for one case:
 
-    dwcollector report --case 42 [--format md|json]
+    onionwatch report --case 42 [--format md|json]
 
 The report contains the case metadata (title, client, state, opened/closed
 timestamps, duration), a summary (finding counts by status, severity, kind, and
@@ -331,13 +375,13 @@ analyst's curated set, so it renders every member finding unconditionally
 
 Set `socks_proxy = "socks5://127.0.0.1:9050"` in `config.toml`, then:
 
-    dwcollector crawl            # deep discovery + liveness + categorise + fingerprint
-    dwcollector cluster          # original-vs-clone detection, trust levels
-    dwcollector hunt --terms client.txt
-    dwcollector export --format csv --trust verified --category leak-site
-    dwcollector stats
+    onionwatch crawl            # deep discovery + liveness + categorise + fingerprint
+    onionwatch cluster          # original-vs-clone detection, trust levels
+    onionwatch hunt --terms client.txt
+    onionwatch export --format csv --trust verified --category leak-site
+    onionwatch stats
 
-Crawls are resumable: re-run `dwcollector crawl --resume` to continue the frontier.
+Crawls are resumable: re-run `onionwatch crawl --resume` to continue the frontier.
 A crawler process killed mid-run (OOM, `docker restart`, host reboot) also
 recovers automatically — any URL left stuck `in_progress` by the dead process
 is reset to `pending` and retried on the next `crawl`.
@@ -366,8 +410,8 @@ is trusted and `hunt` has nothing to scan.
 `unknown` / `suspected_clone` sites are surfaced for operator review rather than
 auto-trusted — inspect them with, e.g.:
 
-    dwcollector export --trust unknown
-    dwcollector export --trust suspected_clone
+    onionwatch export --trust unknown
+    onionwatch export --trust suspected_clone
 
 ## Concurrency & single-writer safety
 
@@ -375,7 +419,7 @@ The database opens in WAL mode with a busy timeout, but the design still assumes
 a **single writer**. Do **not** run one-off writing commands
 (`crawl` / `cluster` / `hunt`) while the `loop` service is running: a second
 crawl's `in_progress` reset can hijack the loop's in-flight frontier rows. Stop
-the service first (`docker compose stop dwcollector`), or run only read-only
+the service first (`docker compose stop onionwatch`), or run only read-only
 commands (`stats`, `export`) alongside the loop.
 
 ## Known limitations / follow-ups
@@ -418,7 +462,7 @@ unchanged — this feature is fully opt-in.
 
 ## Market-listing extraction (optional)
 
-On marketplace pages, dwcollector can extract price-anchored **listing records**
+On marketplace pages, onionwatch can extract price-anchored **listing records**
 — a best-effort signal of what is being sold and at what price. It is off by
 default. Enable it in `config.toml`:
 
@@ -437,7 +481,7 @@ stored, only the bounded context windows.
 
 Query them:
 
-    dwcollector listings [--host H] [--currency BTC] \
+    onionwatch listings [--host H] [--currency BTC] \
                          [--min-price N] [--max-price N] \
                          [--contains TEXT] [--format table|json]
 
@@ -448,7 +492,7 @@ With `extract_listings` off (the default), nothing is extracted and crawl
 behavior is unchanged.
 
 When listing extraction is on and a watchlist term (from `terms.txt` or a
-client's `clients.toml` terms) matches a listing's product text, dwcollector
+client's `clients.toml` terms) matches a listing's product text, onionwatch
 raises a **`market_listing` finding** (severity `high`) — "this identifier is
 being sold on market H." These findings flow into the same
 `alerts`/`triage`/`disposition`/`history` and case machinery as any other
@@ -473,9 +517,27 @@ simhash further apart — but it also raises the risk of over-merging distinct
 sites that just happen to share a lot of generic template text (e.g. two
 unrelated forums built on the same software). Tune this against your own
 crawl data: start at the default, inspect a cluster's members with
-`dwcollector export`, and raise it only if genuine mirrors are being missed.
+`onionwatch export`, and raise it only if genuine mirrors are being missed.
 
 ## Tests
 
     .venv/bin/pytest            # offline unit tests
     .venv/bin/pytest -m live    # opt-in live-Tor smoke tests
+
+## Design docs
+
+Every feature was built from a written design spec and implementation plan;
+both are kept under [`docs/specs/`](docs/specs) and [`docs/plans/`](docs/plans)
+and are the best place to understand *why* something works the way it does.
+
+## Contributing
+
+Issues and pull requests are welcome. Keep changes opt-in and
+backward-compatible by default (a fresh install with no optional config must
+behave exactly as before), add tests for new behaviour, and run the offline
+suite before opening a PR. Good first contributions are listed under
+*Known limitations / follow-ups* above.
+
+## License
+
+[MIT](LICENSE) © Aman Sonkamble

@@ -1,4 +1,4 @@
-from dwcollector.extract import extract_listings
+from onionwatch.extract import extract_listings
 
 
 def test_detects_each_currency_and_arrangement():

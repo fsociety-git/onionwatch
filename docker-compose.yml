@@ -8,7 +8,7 @@ services:
       - "9051"
     restart: unless-stopped
 
-  dwcollector:
+  onionwatch:
     build: .
     depends_on:
       - tor
@@ -25,5 +25,5 @@ services:
     command: ["loop", "--interval", "1800"]
     restart: unless-stopped
     # override the default at run time for one-off commands, e.g.:
-    #   docker compose run --rm dwcollector crawl
-    #   docker compose run --rm dwcollector stats
+    #   docker compose run --rm onionwatch crawl
+    #   docker compose run --rm onionwatch stats

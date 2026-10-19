@@ -1,8 +1,8 @@
 import pytest
-from dwcollector.hunt import match_terms, hunt
-from dwcollector.tor_client import FetchResult
-from dwcollector.db import Database
-from dwcollector.matching import find_matches  # noqa: F401 (ensures module import path)
+from onionwatch.hunt import match_terms, hunt
+from onionwatch.tor_client import FetchResult
+from onionwatch.db import Database
+from onionwatch.matching import find_matches  # noqa: F401 (ensures module import path)
 
 def test_match_terms_returns_context():
     text = "leak of acme corp dataset including admin@acme.com and more records"
@@ -136,7 +136,7 @@ async def test_hunt_defaults_no_detectors(tmp_path):
     assert row["term"] == "acme.com" and row["match_kind"] == "literal"
 
 
-from dwcollector.hunt import HuntOutcome
+from onionwatch.hunt import HuntOutcome
 
 FP = "1234 5678 9ABC DEF0 1234 5678 9ABC DEF0 1234 5678"  # 10 groups of 4 hex
 

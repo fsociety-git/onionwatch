@@ -1,4 +1,4 @@
-from dwcollector.fingerprint import simhash, hamming, to_hex, from_hex
+from onionwatch.fingerprint import simhash, hamming, to_hex, from_hex
 
 def test_identical_text_zero_distance():
     a = simhash("the quick brown fox jumps over the lazy dog")

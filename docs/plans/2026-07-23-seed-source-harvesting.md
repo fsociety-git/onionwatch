@@ -1,6 +1,5 @@
 # Broader Discovery — Seed-Source Harvesting — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Broaden discovery by harvesting fresh seeds each cycle from operator-configured `.onion` index and category-search sources, fetched through the existing Tor client and enqueued as depth-0 source-tagged seeds.
 
@@ -8,7 +7,7 @@
 
 **Tech Stack:** Python 3.11+, stdlib + existing deps (selectolax via `extract_onion_links`), pytest + pytest-asyncio.
 
-**Spec:** `docs/superpowers/specs/2026-07-23-seed-source-harvesting-design.md`
+**Spec:** `docs/specs/2026-07-23-seed-source-harvesting-design.md`
 
 ## Global Constraints
 
@@ -26,7 +25,7 @@
 ### Task 1: `sources.py` — `harvest()`
 
 **Files:**
-- Create: `src/dwcollector/sources.py`
+- Create: `src/onionwatch/sources.py`
 - Test: `tests/test_sources.py` (create)
 
 **Interfaces:**
@@ -39,8 +38,8 @@ Create `tests/test_sources.py`:
 
 ```python
 import pytest
-from dwcollector.sources import harvest
-from dwcollector.tor_client import FetchResult
+from onionwatch.sources import harvest
+from onionwatch.tor_client import FetchResult
 
 
 class MapClient:
@@ -116,11 +115,11 @@ async def test_harvest_caps_per_source():
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `pytest tests/test_sources.py -v`
-Expected: FAIL — `ModuleNotFoundError: No module named 'dwcollector.sources'`
+Expected: FAIL — `ModuleNotFoundError: No module named 'onionwatch.sources'`
 
 - [ ] **Step 3: Write minimal implementation**
 
-Create `src/dwcollector/sources.py`:
+Create `src/onionwatch/sources.py`:
 
 ```python
 from __future__ import annotations
@@ -172,7 +171,7 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/dwcollector/sources.py tests/test_sources.py
+git add src/onionwatch/sources.py tests/test_sources.py
 git commit -m "feat: sources.harvest — fetch index/search onion sources for seeds"
 ```
 
@@ -181,7 +180,7 @@ git commit -m "feat: sources.harvest — fetch index/search onion sources for se
 ### Task 2: Config — `load_sources` + `max_seeds_per_source`
 
 **Files:**
-- Modify: `src/dwcollector/config.py` (`Config`, add `load_sources`)
+- Modify: `src/onionwatch/config.py` (`Config`, add `load_sources`)
 - Modify: `config.toml`
 - Test: `tests/test_config.py` (append)
 
@@ -195,17 +194,17 @@ Append to `tests/test_config.py`:
 
 ```python
 def test_max_seeds_per_source_default():
-    from dwcollector.config import Config
+    from onionwatch.config import Config
     assert Config().max_seeds_per_source == 200
 
 
 def test_load_sources_missing_file_returns_empty(tmp_path):
-    from dwcollector.config import load_sources
+    from onionwatch.config import load_sources
     assert load_sources(str(tmp_path / "nope.toml")) == []
 
 
 def test_load_sources_parses_and_skips_malformed(tmp_path, capsys):
-    from dwcollector.config import load_sources
+    from onionwatch.config import load_sources
     p = tmp_path / "sources.toml"
     p.write_text(
         '[[source]]\n'
@@ -233,7 +232,7 @@ Expected: FAIL — `AttributeError: 'Config' object has no attribute 'max_seeds_
 
 - [ ] **Step 3: Write minimal implementation**
 
-Add to the `Config` dataclass in `src/dwcollector/config.py` (after `pii_detectors`):
+Add to the `Config` dataclass in `src/onionwatch/config.py` (after `pii_detectors`):
 
 ```python
     max_seeds_per_source: int = 200
@@ -279,7 +278,7 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/dwcollector/config.py config.toml tests/test_config.py
+git add src/onionwatch/config.py config.toml tests/test_config.py
 git commit -m "feat: load_sources + max_seeds_per_source config"
 ```
 
@@ -288,7 +287,7 @@ git commit -m "feat: load_sources + max_seeds_per_source config"
 ### Task 3: Integrate harvest into `crawl()`
 
 **Files:**
-- Modify: `src/dwcollector/discover.py` (`crawl`)
+- Modify: `src/onionwatch/discover.py` (`crawl`)
 - Test: `tests/test_discover.py` (append)
 
 **Interfaces:**
@@ -338,7 +337,7 @@ Expected: FAIL — `crawl()` has no `sources` kwarg (`TypeError`)
 
 - [ ] **Step 3: Write minimal implementation**
 
-In `src/dwcollector/discover.py`, change the `crawl` signature to add `sources=None`:
+In `src/onionwatch/discover.py`, change the `crawl` signature to add `sources=None`:
 
 ```python
 async def crawl(config, db, client, seeds, run_id, now, rules=None, sources=None) -> RunStats:
@@ -367,7 +366,7 @@ Expected: all green (existing crawl callers pass no `sources` → default `None`
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/dwcollector/discover.py tests/test_discover.py
+git add src/onionwatch/discover.py tests/test_discover.py
 git commit -m "feat: crawl harvests configured seed sources as depth-0 seeds"
 ```
 
@@ -376,7 +375,7 @@ git commit -m "feat: crawl harvests configured seed sources as depth-0 seeds"
 ### Task 4: Loop wiring — `run_cycle` + `_run_crawl` load and pass sources
 
 **Files:**
-- Modify: `src/dwcollector/cli.py` (import, `_run_crawl`, `run_cycle`)
+- Modify: `src/onionwatch/cli.py` (import, `_run_crawl`, `run_cycle`)
 - Test: `tests/test_cli.py` (append)
 
 **Interfaces:**
@@ -385,11 +384,11 @@ git commit -m "feat: crawl harvests configured seed sources as depth-0 seeds"
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `tests/test_cli.py` (`SimpleNamespace`, `Config`, `Database` already imported from earlier tasks; add `import dwcollector.cli as cli_mod` locally):
+Append to `tests/test_cli.py` (`SimpleNamespace`, `Config`, `Database` already imported from earlier tasks; add `import onionwatch.cli as cli_mod` locally):
 
 ```python
 def test_run_cycle_passes_sources_to_crawl(tmp_path, monkeypatch):
-    import dwcollector.cli as cli_mod
+    import onionwatch.cli as cli_mod
     db = Database(str(tmp_path / "t.db")); db.init_schema()
     cfg = Config(watchlist_terms=str(tmp_path / "none.txt"),
                  alerts_path=str(tmp_path / "a.jsonl"))
@@ -417,7 +416,7 @@ def test_run_cycle_passes_sources_to_crawl(tmp_path, monkeypatch):
 
 
 def test_run_crawl_passes_sources(tmp_path, monkeypatch):
-    import dwcollector.cli as cli_mod
+    import onionwatch.cli as cli_mod
     db = Database(str(tmp_path / "t.db")); db.init_schema()
     cfg = Config()
     src = [{"name": "s", "type": "index", "url": "http://i.onion/"}]
@@ -448,7 +447,7 @@ Expected: FAIL — `run_cycle` doesn't load/pass sources (`recorded["sources"]` 
 
 - [ ] **Step 3: Write minimal implementation**
 
-In `src/dwcollector/cli.py`, ensure `load_sources` is imported (it's in `config.py`):
+In `src/onionwatch/cli.py`, ensure `load_sources` is imported (it's in `config.py`):
 
 ```python
 from .config import load_config, load_categories, load_verified_sources, load_sources
@@ -502,7 +501,7 @@ Expected: all green.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/dwcollector/cli.py tests/test_cli.py
+git add src/onionwatch/cli.py tests/test_cli.py
 git commit -m "feat: run_cycle and crawl CLI load and pass seed sources"
 ```
 
@@ -560,5 +559,5 @@ git commit -m "docs: document seed-source harvesting"
 
 - [ ] Run the full suite: `pytest -q` — expect all prior tests plus the new ones green.
 - [ ] Smoke harvest offline:
-  `python -c "import asyncio; from dwcollector.sources import harvest; from dwcollector.tor_client import FetchResult"` then exercise `harvest` with a stub client serving an onion-linked page — expect `(url, name)` pairs.
+  `python -c "import asyncio; from onionwatch.sources import harvest; from onionwatch.tor_client import FetchResult"` then exercise `harvest` with a stub client serving an onion-linked page — expect `(url, name)` pairs.
 - [ ] Confirm `crawl` with no `sources.toml` is unchanged (existing crawl tests green) and `git log --oneline` shows one commit per task with a clean tree.

@@ -1,6 +1,6 @@
-from dwcollector.cluster import cluster_rows, choose_canonical, run_clustering
-from dwcollector.fingerprint import simhash, to_hex
-from dwcollector.db import Database
+from onionwatch.cluster import cluster_rows, choose_canonical, run_clustering
+from onionwatch.fingerprint import simhash, to_hex
+from onionwatch.db import Database
 
 def row(url, sh, first_seen="2026-07-21T00:00:00", inbound=0, host=None,
         pgp_fingerprint=None):
@@ -65,7 +65,7 @@ def test_run_clustering_writes_trust(tmp_path):
 # --- Fix 1: clustering must be transitive (single-linkage), not order-dependent ---
 
 # Hand-crafted 64-bit hex simhashes, distances measured directly with
-# dwcollector.fingerprint.hamming (not asserted blind):
+# onionwatch.fingerprint.hamming (not asserted blind):
 #   hamming(sh_a, sh_b) == 2
 #   hamming(sh_b, sh_c) == 2
 #   hamming(sh_a, sh_c) == 4

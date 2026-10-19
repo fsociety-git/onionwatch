@@ -1,6 +1,5 @@
 # Per-Client Reports — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Produce a Markdown/JSON report of one client's dark-web leak findings (with evidence and disposition), backed by a minimal `clients.toml` model that also feeds the loop's watchlist.
 
@@ -8,7 +7,7 @@
 
 **Tech Stack:** Python 3.11+, stdlib only (json, tomllib via existing `_read_toml`), pytest. No new dependencies.
 
-**Spec:** `docs/superpowers/specs/2026-07-24-per-client-reports-design.md`
+**Spec:** `docs/specs/2026-07-24-per-client-reports-design.md`
 
 ## Global Constraints
 
@@ -26,8 +25,8 @@
 ### Task 1: Foundation helpers — `matching.underlying_key` + `config.load_clients`
 
 **Files:**
-- Modify: `src/dwcollector/matching.py` (add `underlying_key`)
-- Modify: `src/dwcollector/config.py` (add `load_clients`)
+- Modify: `src/onionwatch/matching.py` (add `underlying_key`)
+- Modify: `src/onionwatch/config.py` (add `load_clients`)
 - Test: `tests/test_matching.py`, `tests/test_config.py` (append)
 
 **Interfaces:**
@@ -38,7 +37,7 @@
 Append to `tests/test_matching.py`:
 
 ```python
-from dwcollector.matching import underlying_key
+from onionwatch.matching import underlying_key
 
 
 def test_underlying_key_strips_prefixes_but_keeps_re_and_literal():
@@ -53,12 +52,12 @@ Append to `tests/test_config.py`:
 
 ```python
 def test_load_clients_missing_file_returns_empty(tmp_path):
-    from dwcollector.config import load_clients
+    from onionwatch.config import load_clients
     assert load_clients(str(tmp_path / "nope.toml")) == []
 
 
 def test_load_clients_parses_and_skips_malformed(tmp_path, capsys):
-    from dwcollector.config import load_clients
+    from onionwatch.config import load_clients
     p = tmp_path / "clients.toml"
     p.write_text(
         '[[client]]\n'
@@ -79,7 +78,7 @@ Expected: FAIL — `ImportError` for `underlying_key` / `load_clients`
 
 - [ ] **Step 3: Write minimal implementation**
 
-Add to `src/dwcollector/matching.py`:
+Add to `src/onionwatch/matching.py`:
 
 ```python
 def underlying_key(term: str) -> str:
@@ -91,7 +90,7 @@ def underlying_key(term: str) -> str:
     return term
 ```
 
-Add to `src/dwcollector/config.py` (near `load_sources`):
+Add to `src/onionwatch/config.py` (near `load_sources`):
 
 ```python
 def load_clients(path: str = "clients.toml") -> list[dict]:
@@ -118,7 +117,7 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/dwcollector/matching.py src/dwcollector/config.py tests/test_matching.py tests/test_config.py
+git add src/onionwatch/matching.py src/onionwatch/config.py tests/test_matching.py tests/test_config.py
 git commit -m "feat: underlying_key + load_clients for per-client reports"
 ```
 
@@ -127,7 +126,7 @@ git commit -m "feat: underlying_key + load_clients for per-client reports"
 ### Task 2: `report.py` — selection, summary, renderers
 
 **Files:**
-- Create: `src/dwcollector/report.py`
+- Create: `src/onionwatch/report.py`
 - Test: `tests/test_report.py` (create)
 
 **Interfaces:**
@@ -140,8 +139,8 @@ Create `tests/test_report.py`:
 
 ```python
 import json
-from dwcollector.db import Database
-from dwcollector.report import client_findings, build_report, render_json, render_markdown
+from onionwatch.db import Database
+from onionwatch.report import client_findings, build_report, render_json, render_markdown
 
 CLIENT = {"name": "Acme", "terms": ["acme.com", "fuzzy:secret.com"]}
 
@@ -214,11 +213,11 @@ def test_build_report_summary_and_render(tmp_path):
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `pytest tests/test_report.py::test_client_findings_selects_by_client_terms -v`
-Expected: FAIL — `ModuleNotFoundError: No module named 'dwcollector.report'`
+Expected: FAIL — `ModuleNotFoundError: No module named 'onionwatch.report'`
 
 - [ ] **Step 3: Write minimal implementation**
 
-Create `src/dwcollector/report.py`:
+Create `src/onionwatch/report.py`:
 
 ```python
 from __future__ import annotations
@@ -302,7 +301,7 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/dwcollector/report.py tests/test_report.py
+git add src/onionwatch/report.py tests/test_report.py
 git commit -m "feat: report.py — client_findings, build_report, md/json renderers"
 ```
 
@@ -311,7 +310,7 @@ git commit -m "feat: report.py — client_findings, build_report, md/json render
 ### Task 3: CLI — watchlist union in `run_cycle` + `report` command
 
 **Files:**
-- Modify: `src/dwcollector/cli.py` (import, `run_cycle` term assembly, `build_parser`, `_run_report`, `main` dispatch)
+- Modify: `src/onionwatch/cli.py` (import, `run_cycle` term assembly, `build_parser`, `_run_report`, `main` dispatch)
 - Test: `tests/test_cli.py` (append)
 
 **Interfaces:**
@@ -323,12 +322,12 @@ git commit -m "feat: report.py — client_findings, build_report, md/json render
 Append to `tests/test_cli.py`:
 
 ```python
-from dwcollector.report import client_findings as _cf  # noqa: F401 (ensures import path)
+from onionwatch.report import client_findings as _cf  # noqa: F401 (ensures import path)
 
 
 def test_run_cycle_unions_client_terms(tmp_path, monkeypatch):
-    import dwcollector.cli as cli_mod
-    from dwcollector.hunt import HuntOutcome
+    import onionwatch.cli as cli_mod
+    from onionwatch.hunt import HuntOutcome
     db = Database(str(tmp_path / "t.db")); db.init_schema()
     (tmp_path / "wl.txt").write_text("baseterm\n")
     cfg = Config(watchlist_terms=str(tmp_path / "wl.txt"),
@@ -353,8 +352,8 @@ def test_run_cycle_unions_client_terms(tmp_path, monkeypatch):
 
 
 def test_report_command_json_and_unknown_client(tmp_path, capsys, monkeypatch):
-    import dwcollector.cli as cli_mod
-    from dwcollector.cli import build_parser, _run_report
+    import onionwatch.cli as cli_mod
+    from onionwatch.cli import build_parser, _run_report
     db = Database(str(tmp_path / "t.db")); db.init_schema()
     db.open_finding("leak", "leak:http://x.onion/|acme.com", "http://x.onion/",
                     "x.onion", "acme.com", "critical", "ev", "2026-07-24T00:00:00")
@@ -373,8 +372,8 @@ def test_report_command_json_and_unknown_client(tmp_path, capsys, monkeypatch):
 
 
 def test_report_all_flag_includes_dismissed(tmp_path, capsys, monkeypatch):
-    import dwcollector.cli as cli_mod
-    from dwcollector.cli import build_parser, _run_report
+    import onionwatch.cli as cli_mod
+    from onionwatch.cli import build_parser, _run_report
     db = Database(str(tmp_path / "t.db")); db.init_schema()
     db.open_finding("leak", "leak:http://x.onion/|acme.com", "http://x.onion/",
                     "x.onion", "acme.com", "critical", "ev", "2026-07-24T00:00:00")
@@ -398,7 +397,7 @@ Expected: FAIL — `run_cycle` doesn't union client terms (`recorded["terms"]` l
 
 - [ ] **Step 3: Write minimal implementation**
 
-In `src/dwcollector/cli.py`, extend the config import to include `load_clients`, and add the report imports:
+In `src/onionwatch/cli.py`, extend the config import to include `load_clients`, and add the report imports:
 
 ```python
 from .config import (load_config, load_categories, load_verified_sources,
@@ -469,7 +468,7 @@ Expected: all green.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/dwcollector/cli.py tests/test_cli.py
+git add src/onionwatch/cli.py tests/test_cli.py
 git commit -m "feat: run_cycle unions client terms; report CLI command"
 ```
 
@@ -501,7 +500,7 @@ Create `clients.toml.example`:
 
 - [ ] **Step 2: Document per-client reports in README**
 
-Add a "Per-client reports" subsection to `README.md` near the alerting/triage content covering: `clients.toml` (default absent = off) maps clients to watchlist terms; those terms are added to the loop watchlist (deduped) so they're hunted; `dwcollector report --client "Acme Corp" [--format md|json] [--since DATE] [--all]` writes a report to stdout (redirect to a file); the report includes the client's **leak** findings (open + resolved) with evidence and disposition; `false_positive`/`dismissed` are excluded unless `--all`; `--since` limits to findings active since a date; and that reports contain only masked evidence, never raw leaked data. Note the Markdown output converts to PDF/DOCX with any standard tool.
+Add a "Per-client reports" subsection to `README.md` near the alerting/triage content covering: `clients.toml` (default absent = off) maps clients to watchlist terms; those terms are added to the loop watchlist (deduped) so they're hunted; `onionwatch report --client "Acme Corp" [--format md|json] [--since DATE] [--all]` writes a report to stdout (redirect to a file); the report includes the client's **leak** findings (open + resolved) with evidence and disposition; `false_positive`/`dismissed` are excluded unless `--all`; `--since` limits to findings active since a date; and that reports contain only masked evidence, never raw leaked data. Note the Markdown output converts to PDF/DOCX with any standard tool.
 
 - [ ] **Step 3: Verify suite green and commit**
 

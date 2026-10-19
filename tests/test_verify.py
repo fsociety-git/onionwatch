@@ -1,4 +1,4 @@
-from dwcollector.verify import is_verified, pgp_fingerprint_in_page, pgp_matches
+from onionwatch.verify import is_verified, pgp_fingerprint_in_page, pgp_matches
 
 VERIFIED = {
     "verified_onions": ["aaaaaaaaaaaaaaaa.onion"],
@@ -70,7 +70,7 @@ def test_pgp_matches_false_when_fingerprint_differs():
     assert pgp_matches("http://aaaaaaaaaaaaaaaa.onion/", page, VERIFIED) is False
 
 
-from dwcollector.verify import is_pgp_anchor
+from onionwatch.verify import is_pgp_anchor
 
 
 def test_is_pgp_anchor():

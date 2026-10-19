@@ -1,14 +1,13 @@
 # Continuous Hunting + Temporal Tracking + Alerting — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Turn dwcollector from a passive collector into a monitoring service by adding a history event-log, loop-integrated hunting, and a deduplicated, lifecycle-tracked alert engine with a local sink plus one optional webhook.
+**Goal:** Turn onionwatch from a passive collector into a monitoring service by adding a history event-log, loop-integrated hunting, and a deduplicated, lifecycle-tracked alert engine with a local sink plus one optional webhook.
 
 **Architecture:** Three additive SQLite tables (`url_events`, `findings`, `alerts`). History is captured automatically inside `Database.update_url` by diffing a fixed set of material fields. A new `alerts.py` module reconciles this run's leak hits and dead canonical originals into an open/resolved finding lifecycle and emits alerts to a local JSONL sink + stderr + optional webhook. The supervisor loop's `run_cycle` gains a hunt+reconcile step reading a config watchlist.
 
 **Tech Stack:** Python 3.11+, sqlite3 (stdlib), httpx[socks]==0.27.2, pytest + pytest-asyncio.
 
-**Spec:** `docs/superpowers/specs/2026-07-23-continuous-hunt-history-alerts-design.md`
+**Spec:** `docs/specs/2026-07-23-continuous-hunt-history-alerts-design.md`
 
 ## Global Constraints
 
@@ -26,7 +25,7 @@
 ### Task 1: Schema + findings/alerts/events DB methods
 
 **Files:**
-- Modify: `src/dwcollector/db.py` (add tables to `SCHEMA`; add methods; add module helpers)
+- Modify: `src/onionwatch/db.py` (add tables to `SCHEMA`; add methods; add module helpers)
 - Test: `tests/test_db.py` (append tests)
 
 **Interfaces:**
@@ -49,7 +48,7 @@
 Append to `tests/test_db.py`:
 
 ```python
-from dwcollector.db import Database
+from onionwatch.db import Database
 
 def test_finding_lifecycle_methods(tmp_path):
     db = Database(str(tmp_path / "t.db")); db.init_schema()
@@ -105,7 +104,7 @@ Expected: FAIL — `AttributeError: 'Database' object has no attribute 'get_find
 
 - [ ] **Step 3: Write minimal implementation**
 
-In `src/dwcollector/db.py`, add near the top (after `import sqlite3`):
+In `src/onionwatch/db.py`, add near the top (after `import sqlite3`):
 
 ```python
 from datetime import datetime, timezone
@@ -224,7 +223,7 @@ Expected: PASS (new tests + existing db tests all green)
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/dwcollector/db.py tests/test_db.py
+git add src/onionwatch/db.py tests/test_db.py
 git commit -m "feat: add url_events/findings/alerts tables and DB methods"
 ```
 
@@ -233,7 +232,7 @@ git commit -m "feat: add url_events/findings/alerts tables and DB methods"
 ### Task 2: History-aware `update_url`
 
 **Files:**
-- Modify: `src/dwcollector/db.py` (`_UPDATABLE` region + `update_url`)
+- Modify: `src/onionwatch/db.py` (`_UPDATABLE` region + `update_url`)
 - Test: `tests/test_db.py` (append)
 
 **Interfaces:**
@@ -281,7 +280,7 @@ Expected: FAIL — `update_url` has no `observed_at` param / no events written (
 
 - [ ] **Step 3: Write minimal implementation**
 
-In `src/dwcollector/db.py`, add the material-set constant next to `_UPDATABLE`:
+In `src/onionwatch/db.py`, add the material-set constant next to `_UPDATABLE`:
 
 ```python
 _MATERIAL = (
@@ -339,7 +338,7 @@ Expected: all previously-passing tests still pass (existing `update_url` callers
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/dwcollector/db.py tests/test_db.py
+git add src/onionwatch/db.py tests/test_db.py
 git commit -m "feat: record url_events for material field changes in update_url"
 ```
 
@@ -348,7 +347,7 @@ git commit -m "feat: record url_events for material field changes in update_url"
 ### Task 3: Config fields for watchlist, sink, webhook
 
 **Files:**
-- Modify: `src/dwcollector/config.py` (`Config` dataclass)
+- Modify: `src/onionwatch/config.py` (`Config` dataclass)
 - Modify: `config.toml` (document the new keys, commented defaults)
 - Test: `tests/test_config.py` (append)
 
@@ -361,7 +360,7 @@ git commit -m "feat: record url_events for material field changes in update_url"
 Append to `tests/test_config.py`:
 
 ```python
-from dwcollector.config import Config, load_config
+from onionwatch.config import Config, load_config
 
 def test_alert_config_defaults():
     c = Config()
@@ -389,7 +388,7 @@ Expected: FAIL — `AttributeError: 'Config' object has no attribute 'watchlist_
 
 - [ ] **Step 3: Write minimal implementation**
 
-In `src/dwcollector/config.py`, add three fields to the `Config` dataclass (after `simhash_distance`):
+In `src/onionwatch/config.py`, add three fields to the `Config` dataclass (after `simhash_distance`):
 
 ```python
     watchlist_terms: str = "terms.txt"
@@ -414,7 +413,7 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/dwcollector/config.py config.toml tests/test_config.py
+git add src/onionwatch/config.py config.toml tests/test_config.py
 git commit -m "feat: add watchlist_terms/alerts_path/alert_webhook config"
 ```
 
@@ -423,7 +422,7 @@ git commit -m "feat: add watchlist_terms/alerts_path/alert_webhook config"
 ### Task 4: `hunt()` returns covered URLs
 
 **Files:**
-- Modify: `src/dwcollector/hunt.py` (`hunt`)
+- Modify: `src/onionwatch/hunt.py` (`hunt`)
 - Modify: `tests/test_hunt.py` (update existing `test_hunt_records_hits`)
 - Test: `tests/test_hunt.py` (append coverage test)
 
@@ -481,7 +480,7 @@ Expected: FAIL — `TypeError: cannot unpack non-iterable int object` (hunt stil
 
 - [ ] **Step 3: Write minimal implementation**
 
-Replace `hunt` in `src/dwcollector/hunt.py`:
+Replace `hunt` in `src/onionwatch/hunt.py`:
 
 ```python
 async def hunt(db, client, terms: list[str], run_id: str, now: str) -> tuple[int, set[str]]:
@@ -503,7 +502,7 @@ async def hunt(db, client, terms: list[str], run_id: str, now: str) -> tuple[int
 
 - [ ] **Step 4: Update the manual CLI caller**
 
-In `src/dwcollector/cli.py`, in `_run_hunt`'s inner `go()`, change:
+In `src/onionwatch/cli.py`, in `_run_hunt`'s inner `go()`, change:
 
 ```python
             n = await hunt(db, client, terms, f"hunt-{_now()}", _now())
@@ -525,7 +524,7 @@ Expected: PASS (updated + new hunt tests, and CLI hunt path still works)
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/dwcollector/hunt.py src/dwcollector/cli.py tests/test_hunt.py
+git add src/onionwatch/hunt.py src/onionwatch/cli.py tests/test_hunt.py
 git commit -m "feat: hunt() returns (count, covered_urls) for coverage-gated resolve"
 ```
 
@@ -534,7 +533,7 @@ git commit -m "feat: hunt() returns (count, covered_urls) for coverage-gated res
 ### Task 5: Alert emission (`alerts.py` — `emit`)
 
 **Files:**
-- Create: `src/dwcollector/alerts.py`
+- Create: `src/onionwatch/alerts.py`
 - Test: `tests/test_alerts.py` (create)
 
 **Interfaces:**
@@ -551,8 +550,8 @@ Create `tests/test_alerts.py`:
 ```python
 import json
 from types import SimpleNamespace
-from dwcollector.db import Database
-from dwcollector.alerts import emit
+from onionwatch.db import Database
+from onionwatch.alerts import emit
 
 
 def _cfg(tmp_path, webhook=""):
@@ -615,11 +614,11 @@ def test_emit_webhook_failure_is_recorded_not_raised(tmp_path):
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `pytest tests/test_alerts.py -v`
-Expected: FAIL — `ModuleNotFoundError: No module named 'dwcollector.alerts'`
+Expected: FAIL — `ModuleNotFoundError: No module named 'onionwatch.alerts'`
 
 - [ ] **Step 3: Write minimal implementation**
 
-Create `src/dwcollector/alerts.py`:
+Create `src/onionwatch/alerts.py`:
 
 ```python
 from __future__ import annotations
@@ -695,7 +694,7 @@ Expected: PASS (all three emit tests)
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/dwcollector/alerts.py tests/test_alerts.py
+git add src/onionwatch/alerts.py tests/test_alerts.py
 git commit -m "feat: alert emission to sink + optional webhook, failure-safe"
 ```
 
@@ -704,7 +703,7 @@ git commit -m "feat: alert emission to sink + optional webhook, failure-safe"
 ### Task 6: `reconcile_leaks` (leak finding lifecycle + coverage gate)
 
 **Files:**
-- Modify: `src/dwcollector/alerts.py` (add `reconcile_leaks`, `LEAK_SEVERITY`)
+- Modify: `src/onionwatch/alerts.py` (add `reconcile_leaks`, `LEAK_SEVERITY`)
 - Test: `tests/test_alerts.py` (append)
 
 **Interfaces:**
@@ -716,7 +715,7 @@ git commit -m "feat: alert emission to sink + optional webhook, failure-safe"
 Append to `tests/test_alerts.py`:
 
 ```python
-from dwcollector.alerts import reconcile_leaks
+from onionwatch.alerts import reconcile_leaks
 
 
 def test_reconcile_leaks_full_lifecycle(tmp_path):
@@ -774,7 +773,7 @@ Expected: FAIL — `ImportError: cannot import name 'reconcile_leaks'`
 
 - [ ] **Step 3: Write minimal implementation**
 
-Add to `src/dwcollector/alerts.py`:
+Add to `src/onionwatch/alerts.py`:
 
 ```python
 LEAK_SEVERITY = "critical"
@@ -815,7 +814,7 @@ Expected: PASS (lifecycle + coverage-gate tests)
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/dwcollector/alerts.py tests/test_alerts.py
+git add src/onionwatch/alerts.py tests/test_alerts.py
 git commit -m "feat: reconcile_leaks with open/resolved lifecycle + coverage gate"
 ```
 
@@ -824,7 +823,7 @@ git commit -m "feat: reconcile_leaks with open/resolved lifecycle + coverage gat
 ### Task 7: `reconcile_dead_originals` (dead-original lifecycle)
 
 **Files:**
-- Modify: `src/dwcollector/alerts.py` (add `reconcile_dead_originals`, `DEAD_SEVERITY`)
+- Modify: `src/onionwatch/alerts.py` (add `reconcile_dead_originals`, `DEAD_SEVERITY`)
 - Test: `tests/test_alerts.py` (append)
 
 **Interfaces:**
@@ -836,7 +835,7 @@ git commit -m "feat: reconcile_leaks with open/resolved lifecycle + coverage gat
 Append to `tests/test_alerts.py`:
 
 ```python
-from dwcollector.alerts import reconcile_dead_originals
+from onionwatch.alerts import reconcile_dead_originals
 
 
 def _canonical(db, url, alive):
@@ -881,7 +880,7 @@ Expected: FAIL — `ImportError: cannot import name 'reconcile_dead_originals'`
 
 - [ ] **Step 3: Write minimal implementation**
 
-Add to `src/dwcollector/alerts.py`:
+Add to `src/onionwatch/alerts.py`:
 
 ```python
 DEAD_SEVERITY = "high"
@@ -919,7 +918,7 @@ Expected: PASS (all alerts tests)
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/dwcollector/alerts.py tests/test_alerts.py
+git add src/onionwatch/alerts.py tests/test_alerts.py
 git commit -m "feat: reconcile_dead_originals for canonical-site liveness alerts"
 ```
 
@@ -928,7 +927,7 @@ git commit -m "feat: reconcile_dead_originals for canonical-site liveness alerts
 ### Task 8: Wire hunt + reconcile into `run_cycle`
 
 **Files:**
-- Modify: `src/dwcollector/cli.py` (`run_cycle`)
+- Modify: `src/onionwatch/cli.py` (`run_cycle`)
 - Test: `tests/test_cli.py` (append)
 
 **Interfaces:**
@@ -943,10 +942,10 @@ Append to `tests/test_cli.py` (imports at top of file as needed):
 
 ```python
 from types import SimpleNamespace
-from dwcollector.cli import run_cycle
-from dwcollector.config import Config
-from dwcollector.db import Database
-from dwcollector.tor_client import FetchResult
+from onionwatch.cli import run_cycle
+from onionwatch.config import Config
+from onionwatch.db import Database
+from onionwatch.tor_client import FetchResult
 
 
 class _StubClient:
@@ -1004,7 +1003,7 @@ Expected: FAIL — `run_cycle` has no `crawl_fn`/`hunt_client_factory` params (`
 
 - [ ] **Step 3: Write minimal implementation**
 
-In `src/dwcollector/cli.py`, add imports near the top:
+In `src/onionwatch/cli.py`, add imports near the top:
 
 ```python
 from .alerts import reconcile_leaks, reconcile_dead_originals
@@ -1095,7 +1094,7 @@ Expected: all green.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/dwcollector/cli.py tests/test_cli.py
+git add src/onionwatch/cli.py tests/test_cli.py
 git commit -m "feat: wire hunt + reconcile into run_cycle with injectable seams"
 ```
 
@@ -1104,19 +1103,19 @@ git commit -m "feat: wire hunt + reconcile into run_cycle with injectable seams"
 ### Task 9: `alerts` CLI command
 
 **Files:**
-- Modify: `src/dwcollector/cli.py` (`build_parser`, add `_run_alerts`, dispatch in `main`)
+- Modify: `src/onionwatch/cli.py` (`build_parser`, add `_run_alerts`, dispatch in `main`)
 - Test: `tests/test_cli.py` (append)
 
 **Interfaces:**
 - Consumes: `Database.list_findings` (Task 1).
-- Produces: `dwcollector alerts [--status open|resolved|all]` (default `open`); `_run_alerts(db, args) -> None`.
+- Produces: `onionwatch alerts [--status open|resolved|all]` (default `open`); `_run_alerts(db, args) -> None`.
 
 - [ ] **Step 1: Write the failing test**
 
 Append to `tests/test_cli.py`:
 
 ```python
-from dwcollector.cli import build_parser, _run_alerts
+from onionwatch.cli import build_parser, _run_alerts
 
 
 def test_alerts_command_lists_findings(tmp_path, capsys):
@@ -1147,7 +1146,7 @@ Expected: FAIL — `argument command: invalid choice: 'alerts'` (or `ImportError
 
 - [ ] **Step 3: Write minimal implementation**
 
-In `src/dwcollector/cli.py` `build_parser`, add after the `stats` parser:
+In `src/onionwatch/cli.py` `build_parser`, add after the `stats` parser:
 
 ```python
     ap = sub.add_parser("alerts")
@@ -1187,7 +1186,7 @@ Expected: all green.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/dwcollector/cli.py tests/test_cli.py
+git add src/onionwatch/cli.py tests/test_cli.py
 git commit -m "feat: add `alerts` CLI command to list findings by status"
 ```
 
@@ -1215,7 +1214,7 @@ re:ACME-[A-Z]+-DB
 
 - [ ] **Step 2: Document alerting in README**
 
-Add a section to `README.md` describing: the watchlist (`watchlist_terms`), that `loop` now hunts every cycle, the two alert types (CRITICAL new-leak / HIGH dead-original), the open/resolved lifecycle, the local `alerts.jsonl` sink + optional `alert_webhook`, and the `dwcollector alerts --status open|resolved|all` command. Note the coverage-gated resolve behavior (findings on unreachable sites stay open).
+Add a section to `README.md` describing: the watchlist (`watchlist_terms`), that `loop` now hunts every cycle, the two alert types (CRITICAL new-leak / HIGH dead-original), the open/resolved lifecycle, the local `alerts.jsonl` sink + optional `alert_webhook`, and the `onionwatch alerts --status open|resolved|all` command. Note the coverage-gated resolve behavior (findings on unreachable sites stay open).
 
 - [ ] **Step 3: Verify the suite is still green and commit**
 
@@ -1233,5 +1232,5 @@ git commit -m "docs: document alerting, watchlist, and alerts command"
 
 - [ ] Run the full suite: `pytest -q` — expect all prior tests plus new ones green.
 - [ ] Smoke the new command against a scratch DB:
-  `python -m dwcollector --db /tmp/smoke.db alerts --status all` — expect `total: 0`.
+  `python -m onionwatch --db /tmp/smoke.db alerts --status all` — expect `total: 0`.
 - [ ] Confirm `git log --oneline` shows one commit per task and the tree is clean.

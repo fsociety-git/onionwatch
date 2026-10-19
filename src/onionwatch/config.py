@@ -15,7 +15,7 @@ class Config:
     per_host_delay: float = 2.0
     request_timeout: float = 60.0
     max_retries: int = 3
-    user_agent: str = "dwcollector/0.1"
+    user_agent: str = "onionwatch/0.1"
     ahmia_enabled: bool = True
     snippet_chars: int = 500
     simhash_distance: int = 3

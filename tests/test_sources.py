@@ -1,6 +1,6 @@
 import pytest
-from dwcollector.sources import harvest
-from dwcollector.tor_client import FetchResult
+from onionwatch.sources import harvest
+from onionwatch.tor_client import FetchResult
 
 
 class MapClient:
@@ -70,7 +70,7 @@ async def test_harvest_isolates_parse_failure(monkeypatch):
     def boom(html, url):
         raise RuntimeError("parse exploded")
 
-    monkeypatch.setattr("dwcollector.sources.extract_onion_links", boom)
+    monkeypatch.setattr("onionwatch.sources.extract_onion_links", boom)
     page = '<a href="http://aaaaaaaaaaaaaaaa.onion/">m</a>'
     sources = [{"name": "dir1", "type": "index", "url": "http://idx.onion/"}]
     out = await harvest(MapClient({"http://idx.onion/": page}), sources, cap=10)  # must not raise

@@ -7,7 +7,7 @@
 ## Problem
 
 Coverage is the thing a crawler lives or dies on, and discovery is where
-dwcollector is thinnest. Today `crawl()` starts only from a static `seeds.txt`
+onionwatch is thinnest. Today `crawl()` starts only from a static `seeds.txt`
 and drains the frontier breadth-first, discovering whatever those seeds happen
 to link to. It never pulls from external indexes, so sites that aren't already
 linked from a seed are simply never found. `ahmia_enabled` exists in config but

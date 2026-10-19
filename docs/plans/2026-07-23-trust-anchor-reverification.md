@@ -1,6 +1,5 @@
 # Trust-Anchor Re-Verification — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Keep the trust-anchor set self-monitoring — fresh liveness, PGP identity re-verification with a safety cutout, and live cluster-sibling re-anchor candidates surfaced on the alert — by folding anchor health-checking into the hunt pass.
 
@@ -8,7 +7,7 @@
 
 **Tech Stack:** Python 3.11+, stdlib + existing deps only (no new dependencies), pytest + pytest-asyncio.
 
-**Spec:** `docs/superpowers/specs/2026-07-23-trust-anchor-reverification-design.md`
+**Spec:** `docs/specs/2026-07-23-trust-anchor-reverification-design.md`
 
 ## Global Constraints
 
@@ -27,7 +26,7 @@
 ### Task 1: `is_pgp_anchor` in `verify.py`
 
 **Files:**
-- Modify: `src/dwcollector/verify.py`
+- Modify: `src/onionwatch/verify.py`
 - Test: `tests/test_verify.py` (append)
 
 **Interfaces:**
@@ -41,7 +40,7 @@ Append to `tests/test_verify.py`:
 Onion hosts must be valid 16-char (v2) base32 addresses — `onion_host()` returns `None` for anything else (e.g. `aaaaaaaaaaaaaaaa.onion`), which would make `is_pgp_anchor` always False. Use `aaaaaaaaaaaaaaaa.onion` / `bbbbbbbbbbbbbbbb.onion`, matching the existing `tests/test_verify.py` fixtures.
 
 ```python
-from dwcollector.verify import is_pgp_anchor
+from onionwatch.verify import is_pgp_anchor
 
 
 def test_is_pgp_anchor():
@@ -59,7 +58,7 @@ Expected: FAIL — `ImportError: cannot import name 'is_pgp_anchor'`
 
 - [ ] **Step 3: Write minimal implementation**
 
-Add to `src/dwcollector/verify.py`:
+Add to `src/onionwatch/verify.py`:
 
 ```python
 def is_pgp_anchor(row: dict, verified: dict) -> bool:
@@ -74,7 +73,7 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/dwcollector/verify.py tests/test_verify.py
+git add src/onionwatch/verify.py tests/test_verify.py
 git commit -m "feat: is_pgp_anchor helper for identity re-verification"
 ```
 
@@ -83,7 +82,7 @@ git commit -m "feat: is_pgp_anchor helper for identity re-verification"
 ### Task 2: `Database.live_cluster_siblings`
 
 **Files:**
-- Modify: `src/dwcollector/db.py`
+- Modify: `src/onionwatch/db.py`
 - Test: `tests/test_db.py` (append)
 
 **Interfaces:**
@@ -116,7 +115,7 @@ Expected: FAIL — `AttributeError: 'Database' object has no attribute 'live_clu
 
 - [ ] **Step 3: Write minimal implementation**
 
-Add to the `Database` class in `src/dwcollector/db.py`:
+Add to the `Database` class in `src/onionwatch/db.py`:
 
 ```python
     def live_cluster_siblings(self, cluster_id, exclude_url) -> list[dict]:
@@ -135,7 +134,7 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/dwcollector/db.py tests/test_db.py
+git add src/onionwatch/db.py tests/test_db.py
 git commit -m "feat: live_cluster_siblings for re-anchor candidates"
 ```
 
@@ -144,7 +143,7 @@ git commit -m "feat: live_cluster_siblings for re-anchor candidates"
 ### Task 3: `HuntOutcome` + anchor health-checking in `hunt()`
 
 **Files:**
-- Modify: `src/dwcollector/hunt.py` (imports, `HuntOutcome`, `hunt`)
+- Modify: `src/onionwatch/hunt.py` (imports, `HuntOutcome`, `hunt`)
 - Modify: `tests/test_hunt.py` (update existing unpackings; append new tests)
 
 **Interfaces:**
@@ -192,7 +191,7 @@ In `tests/test_hunt.py`, **every** existing `await hunt(...)` call currently bin
 Then append these new tests:
 
 ```python
-from dwcollector.hunt import HuntOutcome
+from onionwatch.hunt import HuntOutcome
 
 FP = "1234 5678 9ABC DEF0 1234 5678 9ABC DEF0 1234 5678"  # 10 groups of 4 hex
 
@@ -273,7 +272,7 @@ Expected: FAIL — `hunt()` has no `verified` kwarg / returns a tuple (`Attribut
 
 - [ ] **Step 3: Write minimal implementation**
 
-In `src/dwcollector/hunt.py`, update the imports at the top:
+In `src/onionwatch/hunt.py`, update the imports at the top:
 
 ```python
 from dataclasses import dataclass
@@ -339,7 +338,7 @@ Expected: `tests/test_cli.py` may FAIL on `_run_hunt`/`run_cycle` unpacking — 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/dwcollector/hunt.py tests/test_hunt.py
+git add src/onionwatch/hunt.py tests/test_hunt.py
 git commit -m "feat: hunt anchor health-check (alive+identity), HuntOutcome, safety cutout"
 ```
 
@@ -348,7 +347,7 @@ git commit -m "feat: hunt anchor health-check (alive+identity), HuntOutcome, saf
 ### Task 4: Re-anchor candidate note + enrich `dead_original`
 
 **Files:**
-- Modify: `src/dwcollector/alerts.py` (`_candidate_note`, `reconcile_dead_originals`)
+- Modify: `src/onionwatch/alerts.py` (`_candidate_note`, `reconcile_dead_originals`)
 - Test: `tests/test_alerts.py` (append)
 
 **Interfaces:**
@@ -360,7 +359,7 @@ git commit -m "feat: hunt anchor health-check (alive+identity), HuntOutcome, saf
 Append to `tests/test_alerts.py`:
 
 ```python
-from dwcollector.alerts import reconcile_dead_originals, _candidate_note
+from onionwatch.alerts import reconcile_dead_originals, _candidate_note
 
 
 def _dead_anchor_with_sibling(db, alive_sibling: bool):
@@ -406,7 +405,7 @@ Expected: FAIL — `ImportError: cannot import name '_candidate_note'`
 
 - [ ] **Step 3: Write minimal implementation**
 
-Add the helper to `src/dwcollector/alerts.py`:
+Add the helper to `src/onionwatch/alerts.py`:
 
 ```python
 def _candidate_note(db, row: dict) -> str:
@@ -438,7 +437,7 @@ Expected: PASS (new + existing alerts tests; existing dead-original lifecycle te
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/dwcollector/alerts.py tests/test_alerts.py
+git add src/onionwatch/alerts.py tests/test_alerts.py
 git commit -m "feat: re-anchor candidate note; dead_original alerts carry candidates"
 ```
 
@@ -447,7 +446,7 @@ git commit -m "feat: re-anchor candidate note; dead_original alerts carry candid
 ### Task 5: `reconcile_anchor_identity` + alert copy
 
 **Files:**
-- Modify: `src/dwcollector/alerts.py` (`ANCHOR_IDENTITY_SEVERITY`, `reconcile_anchor_identity`, `_title`, `_body`)
+- Modify: `src/onionwatch/alerts.py` (`ANCHOR_IDENTITY_SEVERITY`, `reconcile_anchor_identity`, `_title`, `_body`)
 - Test: `tests/test_alerts.py` (append)
 
 **Interfaces:**
@@ -459,7 +458,7 @@ git commit -m "feat: re-anchor candidate note; dead_original alerts carry candid
 Append to `tests/test_alerts.py`:
 
 ```python
-from dwcollector.alerts import reconcile_anchor_identity, _title, _body
+from onionwatch.alerts import reconcile_anchor_identity, _title, _body
 
 
 def _anchor_row(db, url="http://aaaaaaaaaaaaaaaa.onion/", host="aaaaaaaaaaaaaaaa.onion"):
@@ -514,7 +513,7 @@ Expected: FAIL — `ImportError: cannot import name 'reconcile_anchor_identity'`
 
 - [ ] **Step 3: Write minimal implementation**
 
-Add to `src/dwcollector/alerts.py` (near the other severity constants):
+Add to `src/onionwatch/alerts.py` (near the other severity constants):
 
 ```python
 ANCHOR_IDENTITY_SEVERITY = "high"
@@ -580,7 +579,7 @@ Expected: PASS (new + existing; existing dead-original/leak wording tests still 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/dwcollector/alerts.py tests/test_alerts.py
+git add src/onionwatch/alerts.py tests/test_alerts.py
 git commit -m "feat: anchor_identity HIGH finding + alert copy with candidates"
 ```
 
@@ -589,7 +588,7 @@ git commit -m "feat: anchor_identity HIGH finding + alert copy with candidates"
 ### Task 6: Loop wiring in `run_cycle` + `_run_hunt`
 
 **Files:**
-- Modify: `src/dwcollector/cli.py` (imports, `_run_hunt`, `run_cycle`)
+- Modify: `src/onionwatch/cli.py` (imports, `_run_hunt`, `run_cycle`)
 - Test: `tests/test_cli.py` (update existing; append one integration test)
 
 **Interfaces:**
@@ -604,7 +603,7 @@ In `tests/test_cli.py`, add `reconcile_anchor_identity` awareness via one integr
 
 ```python
 def test_run_cycle_reverifies_anchor_identity(tmp_path, monkeypatch):
-    import dwcollector.cli as cli_mod
+    import onionwatch.cli as cli_mod
     db = Database(str(tmp_path / "t.db")); db.init_schema()
     u = "http://aaaaaaaaaaaaaaaa.onion/"
     db.upsert_url(u, "aaaaaaaaaaaaaaaa.onion", "crawled", 1, "2026-07-23T00:00:00")
@@ -640,7 +639,7 @@ Expected: FAIL — `run_cycle` skips hunt when no watchlist / no `reconcile_anch
 
 - [ ] **Step 3: Write minimal implementation**
 
-In `src/dwcollector/cli.py`, extend the alerts import:
+In `src/onionwatch/cli.py`, extend the alerts import:
 
 ```python
 from .alerts import reconcile_leaks, reconcile_dead_originals, reconcile_anchor_identity
@@ -700,7 +699,7 @@ Expected: all green.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/dwcollector/cli.py tests/test_cli.py
+git add src/onionwatch/cli.py tests/test_cli.py
 git commit -m "feat: run_cycle re-verifies anchors every cycle (even without watchlist)"
 ```
 

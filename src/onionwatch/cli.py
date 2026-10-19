@@ -30,9 +30,9 @@ def _now() -> str:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="dwcollector")
+    p = argparse.ArgumentParser(prog="onionwatch")
     p.add_argument("--config", default="config.toml")
-    p.add_argument("--db", default="data/dwcollector.db")
+    p.add_argument("--db", default="data/onionwatch.db")
     sub = p.add_subparsers(dest="command", required=True)
 
     c = sub.add_parser("crawl")

@@ -1,5 +1,5 @@
 import base64
-from dwcollector.matching import Match, normalize_defang, encodings_of, luhn_valid, iban_valid, ssn_valid, available_detectors, run_detectors, match_term
+from onionwatch.matching import Match, normalize_defang, encodings_of, luhn_valid, iban_valid, ssn_valid, available_detectors, run_detectors, match_term
 
 
 def test_match_dataclass_defaults():
@@ -185,7 +185,7 @@ def test_match_term_empty_term():
     assert match_term("anything at all", "") == []
 
 
-from dwcollector.matching import find_matches
+from onionwatch.matching import find_matches
 
 
 def test_find_matches_mixes_terms_and_detectors():
@@ -204,7 +204,7 @@ def test_find_matches_literal_and_fuzzy_same_identifier_share_key():
     assert {m.key for m in ms} == {"acme.com"}
 
 
-from dwcollector.matching import underlying_key
+from onionwatch.matching import underlying_key
 
 
 def test_underlying_key_strips_prefixes_but_keeps_re_and_literal():

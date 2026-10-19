@@ -1,6 +1,5 @@
 # Category-Aware Crawl Prioritization Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make the crawl frontier priority-ordered so high-value pages (by parent category) are fetched first, opt-in via a config weight map.
 
@@ -23,9 +22,9 @@
 
 ## File Structure
 
-- `src/dwcollector/db.py` (modify) — `SCHEMA` frontier block (add `priority`); `init_schema` ALTER loop (one line); `enqueue` (upsert + `priority` param); `next_pending` (ORDER BY).
-- `src/dwcollector/config.py` (modify) — `Config.crawl_priority` field; `priority_for(category, weights)` helper.
-- `src/dwcollector/discover.py` (modify) — import `priority_for`; compute `seed_priority` once; pass child priority (from parent category) and seed priority into `enqueue`.
+- `src/onionwatch/db.py` (modify) — `SCHEMA` frontier block (add `priority`); `init_schema` ALTER loop (one line); `enqueue` (upsert + `priority` param); `next_pending` (ORDER BY).
+- `src/onionwatch/config.py` (modify) — `Config.crawl_priority` field; `priority_for(category, weights)` helper.
+- `src/onionwatch/discover.py` (modify) — import `priority_for`; compute `seed_priority` once; pass child priority (from parent category) and seed priority into `enqueue`.
 - `tests/test_db.py` (modify) — enqueue upsert + next_pending ordering tests.
 - `tests/test_config.py` (modify) — `crawl_priority` load + `priority_for` tests.
 - `tests/test_discover.py` (modify) — propagation integration tests.
@@ -38,7 +37,7 @@
 ### Task 1: Frontier priority column, keep-highest `enqueue`, priority-ordered `next_pending`
 
 **Files:**
-- Modify: `src/dwcollector/db.py` (`SCHEMA` ~lines 37-40; `init_schema` ALTER loop ~lines 109-117; `enqueue` ~lines 175-181; `next_pending` ~lines 183-191)
+- Modify: `src/onionwatch/db.py` (`SCHEMA` ~lines 37-40; `init_schema` ALTER loop ~lines 109-117; `enqueue` ~lines 175-181; `next_pending` ~lines 183-191)
 - Test: `tests/test_db.py`
 
 **Interfaces:**
@@ -119,7 +118,7 @@ Expected: FAIL — `sqlite3.OperationalError: no such column: priority` (the col
 
 - [ ] **Step 3: Add the column, upsert, and ordering**
 
-In `src/dwcollector/db.py`, update the `frontier` block in `SCHEMA` (currently lines 37-40):
+In `src/onionwatch/db.py`, update the `frontier` block in `SCHEMA` (currently lines 37-40):
 
 ```sql
 CREATE TABLE IF NOT EXISTS frontier (
@@ -165,7 +164,7 @@ Expected: PASS — the six new tests plus all pre-existing db tests (including `
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/dwcollector/db.py tests/test_db.py
+git add src/onionwatch/db.py tests/test_db.py
 git commit -m "feat: priority column, keep-highest enqueue, priority-ordered next_pending"
 ```
 
@@ -174,7 +173,7 @@ git commit -m "feat: priority column, keep-highest enqueue, priority-ordered nex
 ### Task 2: `Config.crawl_priority` + `priority_for` helper
 
 **Files:**
-- Modify: `src/dwcollector/config.py` (`Config` dataclass ~lines 6-26; add `priority_for` after `load_config` ~line 49)
+- Modify: `src/onionwatch/config.py` (`Config` dataclass ~lines 6-26; add `priority_for` after `load_config` ~line 49)
 - Test: `tests/test_config.py`
 
 **Interfaces:**
@@ -187,7 +186,7 @@ Add to `tests/test_config.py`:
 
 ```python
 def test_load_config_crawl_priority(tmp_path):
-    from dwcollector.config import load_config
+    from onionwatch.config import load_config
     cfg_file = tmp_path / "config.toml"
     cfg_file.write_text(
         "concurrency = 8\n"
@@ -202,7 +201,7 @@ def test_load_config_crawl_priority(tmp_path):
 
 
 def test_load_config_crawl_priority_absent_is_empty(tmp_path):
-    from dwcollector.config import load_config
+    from onionwatch.config import load_config
     cfg_file = tmp_path / "config.toml"
     cfg_file.write_text("concurrency = 8\n")
     cfg = load_config(str(cfg_file))
@@ -210,7 +209,7 @@ def test_load_config_crawl_priority_absent_is_empty(tmp_path):
 
 
 def test_priority_for_mapped_unmapped_and_default():
-    from dwcollector.config import priority_for
+    from onionwatch.config import priority_for
     weights = {"default": 5, "market": 100}
     assert priority_for("market", weights) == 100     # mapped
     assert priority_for("forum", weights) == 5        # unmapped -> default
@@ -226,7 +225,7 @@ Expected: FAIL — `AttributeError: 'Config' object has no attribute 'crawl_prio
 
 - [ ] **Step 3: Add the field and helper**
 
-In `src/dwcollector/config.py`, add a field to the `Config` dataclass (after `max_seeds_per_source`, ~line 26):
+In `src/onionwatch/config.py`, add a field to the `Config` dataclass (after `max_seeds_per_source`, ~line 26):
 
 ```python
     crawl_priority: dict = field(default_factory=dict)
@@ -247,7 +246,7 @@ Expected: PASS — the three new tests plus all pre-existing config tests (`craw
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/dwcollector/config.py tests/test_config.py
+git add src/onionwatch/config.py tests/test_config.py
 git commit -m "feat: Config.crawl_priority weight map + priority_for helper"
 ```
 
@@ -256,7 +255,7 @@ git commit -m "feat: Config.crawl_priority weight map + priority_for helper"
 ### Task 3: Propagate parent-category priority in `discover.crawl`
 
 **Files:**
-- Modify: `src/dwcollector/discover.py` (imports; `crawl` seed enqueues ~lines 95-96 & 103-104; child enqueue ~lines 151-156)
+- Modify: `src/onionwatch/discover.py` (imports; `crawl` seed enqueues ~lines 95-96 & 103-104; child enqueue ~lines 151-156)
 - Test: `tests/test_discover.py`
 
 **Interfaces:**
@@ -323,7 +322,7 @@ Expected: FAIL — children/seeds are enqueued with the default `priority=0`, so
 
 - [ ] **Step 3: Wire propagation into `crawl`**
 
-In `src/dwcollector/discover.py`, add the import near the other package imports at the top of the file (the module already imports from `.categorize`; add):
+In `src/onionwatch/discover.py`, add the import near the other package imports at the top of the file (the module already imports from `.categorize`; add):
 
 ```python
 from .config import priority_for
@@ -372,7 +371,7 @@ Expected: PASS — all green (baseline 215 + new tests).
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/dwcollector/discover.py tests/test_discover.py
+git add src/onionwatch/discover.py tests/test_discover.py
 git commit -m "feat: propagate parent-category priority to child crawl frontier"
 ```
 

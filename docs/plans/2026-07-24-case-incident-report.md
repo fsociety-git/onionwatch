@@ -1,6 +1,5 @@
 # Standalone Single-Case Incident Report Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add `report --case <id>` — a full Markdown/JSON incident dossier for one case (metadata, summary, every member finding, complete timeline).
 
@@ -23,8 +22,8 @@
 
 ## File Structure
 
-- `src/dwcollector/report.py` (modify) — add `_finding_entry`, `_fmt_delta`, `_duration`, `_count_by`, `build_case_report`, `render_case_json`, `render_case_markdown`; refactor `build_report` to call `_finding_entry`.
-- `src/dwcollector/cli.py` (modify) — make `report`'s `--client`/`--case` a required mutually-exclusive group; branch `_run_report` on `args.case`; extend the `.report` import.
+- `src/onionwatch/report.py` (modify) — add `_finding_entry`, `_fmt_delta`, `_duration`, `_count_by`, `build_case_report`, `render_case_json`, `render_case_markdown`; refactor `build_report` to call `_finding_entry`.
+- `src/onionwatch/cli.py` (modify) — make `report`'s `--client`/`--case` a required mutually-exclusive group; branch `_run_report` on `args.case`; extend the `.report` import.
 - `tests/test_report.py` (modify) — tests for the shared helper/refactor, `build_case_report`, and the renderers.
 - `tests/test_cli.py` (modify) — tests for the case-report CLI path and the mutually-exclusive group.
 - `README.md` (modify) — document `report --case`.
@@ -34,7 +33,7 @@
 ### Task 1: Shared `_finding_entry` helper + `build_report` refactor
 
 **Files:**
-- Modify: `src/dwcollector/report.py`
+- Modify: `src/onionwatch/report.py`
 - Test: `tests/test_report.py`
 
 **Interfaces:**
@@ -47,7 +46,7 @@ Add to `tests/test_report.py` (the `_leak` helper and `CLIENT` already exist at 
 
 ```python
 def test_finding_entry_shared_shape_and_kind(tmp_path):
-    from dwcollector.report import _finding_entry
+    from onionwatch.report import _finding_entry
     db = Database(str(tmp_path / "t.db")); db.init_schema()
     _leak(db, "acme.com", "leak:a")
     f = db.get_finding("leak:a")
@@ -80,7 +79,7 @@ Expected: FAIL — `ImportError: cannot import name '_finding_entry'` (first tes
 
 - [ ] **Step 3: Add the helper and refactor `build_report`**
 
-In `src/dwcollector/report.py`, add the helper just below the `_DISMISSED` constant (after line 5):
+In `src/onionwatch/report.py`, add the helper just below the `_DISMISSED` constant (after line 5):
 
 ```python
 def _finding_entry(f: dict) -> dict:
@@ -107,7 +106,7 @@ Expected: PASS (the two new tests and all pre-existing report tests, including `
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/dwcollector/report.py tests/test_report.py
+git add src/onionwatch/report.py tests/test_report.py
 git commit -m "refactor: shared _finding_entry helper (adds additive kind key)"
 ```
 
@@ -116,7 +115,7 @@ git commit -m "refactor: shared _finding_entry helper (adds additive kind key)"
 ### Task 2: `build_case_report` + duration/count helpers
 
 **Files:**
-- Modify: `src/dwcollector/report.py`
+- Modify: `src/onionwatch/report.py`
 - Test: `tests/test_report.py`
 
 **Interfaces:**
@@ -130,7 +129,7 @@ git commit -m "refactor: shared _finding_entry helper (adds additive kind key)"
 Add to `tests/test_report.py`. Add this import near the top imports (or inline in each test):
 
 ```python
-from dwcollector.report import build_case_report, render_case_json, render_case_markdown
+from onionwatch.report import build_case_report, render_case_json, render_case_markdown
 ```
 
 Then the tests:
@@ -200,7 +199,7 @@ def test_build_case_report_duration_closed(tmp_path):
 
 
 def test_duration_degrades_on_bad_timestamp(tmp_path):
-    from dwcollector.report import _duration
+    from onionwatch.report import _duration
     assert _duration(None, None, "2026-07-24T00:00:00") == ""
     assert _duration("garbage", None, "2026-07-24T00:00:00") == ""
 ```
@@ -212,7 +211,7 @@ Expected: FAIL — `ImportError: cannot import name 'build_case_report'`.
 
 - [ ] **Step 3: Implement the builder and helpers**
 
-At the top of `src/dwcollector/report.py`, extend the imports (currently `import json`):
+At the top of `src/onionwatch/report.py`, extend the imports (currently `import json`):
 
 ```python
 import json
@@ -309,7 +308,7 @@ Expected: PASS (all new case-report tests + all prior report tests).
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/dwcollector/report.py tests/test_report.py
+git add src/onionwatch/report.py tests/test_report.py
 git commit -m "feat: build_case_report + duration/count helpers"
 ```
 
@@ -318,7 +317,7 @@ git commit -m "feat: build_case_report + duration/count helpers"
 ### Task 3: Case renderers (`render_case_json` / `render_case_markdown`)
 
 **Files:**
-- Modify: `src/dwcollector/report.py`
+- Modify: `src/onionwatch/report.py`
 - Test: `tests/test_report.py`
 
 **Interfaces:**
@@ -359,7 +358,7 @@ Expected: FAIL — `ImportError: cannot import name 'render_case_json'`.
 
 - [ ] **Step 3: Implement the renderers**
 
-Append to `src/dwcollector/report.py`:
+Append to `src/onionwatch/report.py`:
 
 ```python
 def render_case_json(report: dict) -> str:
@@ -416,7 +415,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/dwcollector/report.py tests/test_report.py
+git add src/onionwatch/report.py tests/test_report.py
 git commit -m "feat: render_case_json/markdown incident-report renderers"
 ```
 
@@ -425,7 +424,7 @@ git commit -m "feat: render_case_json/markdown incident-report renderers"
 ### Task 4: CLI wiring (`report --case` + mutually-exclusive group)
 
 **Files:**
-- Modify: `src/dwcollector/cli.py` (report subparser ~lines 73-77; `.report` import ~lines 22-23; `_run_report` ~lines 232-242)
+- Modify: `src/onionwatch/cli.py` (report subparser ~lines 73-77; `.report` import ~lines 22-23; `_run_report` ~lines 232-242)
 - Test: `tests/test_cli.py`
 
 **Interfaces:**
@@ -439,7 +438,7 @@ Add to `tests/test_cli.py` (the file already imports `Database`, `build_parser`,
 ```python
 def test_report_case_command(tmp_path, capsys):
     import json as _json
-    from dwcollector.cli import build_parser, _run_report
+    from onionwatch.cli import build_parser, _run_report
     db = Database(str(tmp_path / "t.db")); db.init_schema()
     cid = db.create_case("Acme breach", "Acme", "an@corp", "2026-07-24T00:00:00")
     db.open_finding("leak", "leak:x", "http://x.onion/", "x.onion", "acme.com",
@@ -467,7 +466,7 @@ def test_report_case_command(tmp_path, capsys):
 
 def test_report_requires_exactly_one_target():
     import pytest
-    from dwcollector.cli import build_parser
+    from onionwatch.cli import build_parser
     with pytest.raises(SystemExit):                     # neither --client nor --case
         build_parser().parse_args(["report"])
     with pytest.raises(SystemExit):                     # both -> mutually exclusive
@@ -481,7 +480,7 @@ Expected: FAIL — `test_report_case_command` fails because `--case` is an unrec
 
 - [ ] **Step 3: Update the subparser, import, and handler**
 
-In `src/dwcollector/cli.py`, replace the report subparser block (currently lines 73-77):
+In `src/onionwatch/cli.py`, replace the report subparser block (currently lines 73-77):
 
 ```python
     rp = sub.add_parser("report")
@@ -540,7 +539,7 @@ Expected: PASS — all tests green (baseline 203 + the new tests).
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/dwcollector/cli.py tests/test_cli.py
+git add src/onionwatch/cli.py tests/test_cli.py
 git commit -m "feat: report --case CLI path with mutually-exclusive client/case group"
 ```
 
@@ -563,7 +562,7 @@ Find the per-client report section in `README.md` (search for `report --client`)
 
 Produce a full incident dossier for one case:
 
-    dwcollector report --case 42 [--format md|json]
+    onionwatch report --case 42 [--format md|json]
 
 The report contains the case metadata (title, client, state, opened/closed
 timestamps, duration), a summary (finding counts by status, severity, kind, and
